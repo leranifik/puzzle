@@ -12,7 +12,7 @@ export const en = {
     logout: "Sign out",
   },
   hero: {
-    eyebrow: "PUZZLE ARCADE · 004 GAMES",
+    eyebrow: "PUZZLE ARCADE · 005 GAMES",
     titleA: "Solve anywhere.",
     titleB: "Continue everywhere.",
     lead: "A quiet collection of classic puzzles. Your progress is saved to the cloud — start a game on your desktop and finish it on the phone in your pocket.",
@@ -42,6 +42,10 @@ export const en = {
     memory: {
       name: "Memory",
       tagline: "Flip the cards, find every pair.",
+    },
+    numsolis: {
+      name: "Numsolis",
+      tagline: "Solitaire meets 2048. Match colors, stack high, clear the board.",
     },
     soon: {
       name: "More soon",
@@ -174,6 +178,7 @@ export const en = {
     winSudoku: "The grid is complete and correct.",
     win2048: "You reached the 2048 tile!",
     winMemory: "Every pair found.",
+    winNumsolis: "You cleared the board!",
     gameOver: "No more moves",
     gameOverText: "The board is full. Try again?",
     keepGoing: "Keep going",
