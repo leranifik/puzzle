@@ -3,8 +3,10 @@ import { useFifteenStore } from "@/stores/fifteen-store";
 import { useSudokuStore } from "@/stores/sudoku-store";
 import { use2048Store } from "@/stores/g2048-store";
 import { useMemoryStore } from "@/stores/memory-store";
+import { useNumsolisStore } from "@/stores/numsolis-store";
 import { newSudoku } from "@/lib/games/sudoku";
 import type { FifteenState } from "@/lib/games/fifteen";
+import type { NumsolisState, Column } from "@/lib/games/numsolis";
 
 describe("fifteen store", () => {
   beforeEach(() => useFifteenStore.getState().reset());
@@ -198,5 +200,65 @@ describe("memory store", () => {
     expect(store().flip(9)).toBe("flip");
     expect(store().flip(11)).toBe("match");
     expect(store().won).toBe(true);
+  });
+});
+
+describe("numsolis store", () => {
+  beforeEach(() => useNumsolisStore.getState().reset());
+
+  const nsState = (cols: Column[]): NumsolisState => {
+    const columns = Array.from({ length: 6 }, (_, i) => cols[i] ?? []);
+    const initialCount = columns.reduce((s, c) => s + c.length, 0);
+    return { columns, nextId: 100, moves: 0, seconds: 0, initialCount };
+  };
+
+  it("newGame builds a solvable board with six columns", () => {
+    useNumsolisStore.getState().newGame("easy");
+    const s = useNumsolisStore.getState().state!;
+    expect(s.columns).toHaveLength(6);
+    expect(s.moves).toBe(0);
+    expect(useNumsolisStore.getState().won).toBe(false);
+  });
+
+  it("tap selects, then moves the free card onto a higher stack", () => {
+    const store = useNumsolisStore.getState;
+    store().init(nsState([[{ id: 1, v: 4, c: 0 }], [{ id: 2, v: 8, c: 1 }]]));
+    expect(store().tap(0)).toBe("select");
+    expect(store().selected).toBe(0);
+    expect(store().tap(1)).toBe("move");
+    expect(store().selected).toBeNull();
+    expect(store().state!.columns[0]).toHaveLength(0);
+    expect(store().state!.columns[1]).toHaveLength(2);
+  });
+
+  it("tapping the selected column again deselects", () => {
+    const store = useNumsolisStore.getState;
+    store().init(nsState([[{ id: 1, v: 4, c: 0 }]]));
+    expect(store().tap(0)).toBe("select");
+    expect(store().tap(0)).toBe("deselect");
+    expect(store().selected).toBeNull();
+  });
+
+  it("an illegal target retargets selection instead of moving", () => {
+    const store = useNumsolisStore.getState;
+    // 8 cannot go onto 4 (lower, different color) — selection jumps to col 1
+    store().init(nsState([[{ id: 1, v: 8, c: 0 }], [{ id: 2, v: 4, c: 1 }]]));
+    store().tap(0);
+    expect(store().tap(1)).toBe("select");
+    expect(store().selected).toBe(1);
+  });
+
+  it("merging equal same-color cards clears and can win", () => {
+    const store = useNumsolisStore.getState;
+    store().init(nsState([[{ id: 1, v: 1024, c: 2 }], [{ id: 2, v: 1024, c: 2 }]]));
+    store().tap(0);
+    expect(store().tap(1)).toBe("move");
+    expect(store().won).toBe(true);
+  });
+
+  it("tick advances seconds only while playing", () => {
+    useNumsolisStore.getState().newGame("easy");
+    useNumsolisStore.getState().tick();
+    expect(useNumsolisStore.getState().state!.seconds).toBe(1);
   });
 });

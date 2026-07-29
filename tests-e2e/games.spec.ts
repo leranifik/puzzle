@@ -170,6 +170,43 @@ test.describe("2048", () => {
   });
 });
 
+test.describe("numsolis", () => {
+  test("renders six stacks and lets you move a card", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+
+    const stacks = page.locator("[data-column]");
+    await expect(stacks).toHaveCount(6, { timeout: 10_000 });
+
+    const movesCounter = page.locator(".font-display.tabular-nums").first();
+    await expect(movesCounter).toHaveText("0");
+
+    // Brute-force: tap a source stack, then a target, until moves increments.
+    const count = await stacks.count();
+    outer: for (let i = 0; i < count; i++) {
+      const from = stacks.nth(i);
+      if ((await from.getAttribute("data-count")) === "0") continue;
+      for (let j = 0; j < count; j++) {
+        if (i === j) continue;
+        await from.click({ force: true });
+        await stacks.nth(j).click({ force: true });
+        if ((await movesCounter.innerText()) !== "0") break outer;
+      }
+    }
+    expect(Number(await movesCounter.innerText())).toBeGreaterThan(0);
+  });
+
+  test("difficulty switch starts a fresh game", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+    await expect(page.locator("[data-column]")).toHaveCount(6, { timeout: 10_000 });
+    await page.getByLabel("Difficulty").click();
+    await page.getByRole("option", { name: "Hard" }).click();
+    await expect(page.locator(".font-display.tabular-nums").first()).toHaveText("0");
+    await expect(page.locator("[data-column]")).toHaveCount(6);
+  });
+});
+
 test.describe("memory", () => {
   test("flips cards; a matched pair stays open", async ({ page }) => {
     await page.goto("/en/play/memory");
