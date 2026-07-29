@@ -1,6 +1,8 @@
 /**
  * Numsolis — solitaire-style card merge puzzle (Numsol rules).
- * 7 stacks (columns). Cards: value (power of 2) + color (gold / ink).
+ * 6 stacks (columns) — one common field. Cards pinned to the top.
+ * Cards: value (power of 2) + color (gold / ink).
+ * Solvable deterministic start (not random).
  * Rules:
  * - Move a card onto a stack with a higher value (any color) — card placed on top.
  * - Move a card onto same value + same color — merge: value doubles, card removed.
@@ -32,15 +34,15 @@ function randomColor(): string {
 }
 
 export function newNumsolis(best = 0): NumsolisState {
-  const stacks: Card[][] = [];
-  for (let s = 0; s < 7; s++) {
-    const col: Card[] = [];
-    const count = 3 + Math.floor(Math.random() * 3); // 3-5 cards
-    for (let i = 0; i < count; i++) {
-      col.push({ v: randomValue(), c: randomColor() });
-    }
-    stacks.push(col);
-  }
+  // Deterministic solvable initial layout: pairs arranged to merge up
+  const stacks: Card[][] = [
+    [{ v: 2, c: "gold" }, { v: 2, c: "gold" }],
+    [{ v: 4, c: "ink" }, { v: 4, c: "ink" }],
+    [{ v: 8, c: "gold" }, { v: 8, c: "gold" }],
+    [{ v: 16, c: "ink" }, { v: 16, c: "ink" }],
+    [{ v: 32, c: "gold" }, { v: 32, c: "gold" }],
+    [{ v: 2, c: "ink" }, { v: 4, c: "gold" }],
+  ];
   return {
     stacks,
     best,
@@ -129,7 +131,7 @@ export function moveNumsolis(state: NumsolisState, fromCol: number, toCol: numbe
 
 export function progressNumsolis(state: NumsolisState): number {
   const total = totalCards(state.stacks);
-  return Math.max(0, 1 - total / (7 * 5)); // rough progress toward empty
+  return Math.max(0, 1 - total / (6 * 5)); // rough progress toward empty
 }
 
 export function serializeNumsolis(state: NumsolisState): string {
@@ -153,8 +155,7 @@ export function deserializeNumsolis(raw: string): NumsolisState | null {
       won?: boolean;
       over?: boolean;
     };
-    if (!Array.isArray(parsed.stacks) || parsed.stacks.length !== 7) {
-      // Allow any number of stacks? We'll enforce 7.
+    if (!Array.isArray(parsed.stacks) || parsed.stacks.length !== 6) {
       if (!Array.isArray(parsed.stacks)) return null;
     }
     const stacks = (parsed.stacks || []).map((col) =>

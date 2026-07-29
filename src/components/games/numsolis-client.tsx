@@ -175,7 +175,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
       <div className="relative mx-auto w-full max-w-2xl">
         {!state ? (
           <div className="flex gap-2">
-            {Array.from({ length: 7 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-48 w-16 rounded-lg bg-card" />
             ))}
           </div>
@@ -191,10 +191,9 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                       ? "border-gold bg-card shadow-lg shadow-gold/10"
                       : "border-surface bg-card/60 hover:border-gold/40"
                   }`}
-                  aria-label={`Stack ${colIndex + 1}`}
+                  aria-label={`Column ${colIndex + 1}`}
                 >
-                  <span className="label-mono mb-1 text-[10px] text-muted-foreground">{colIndex + 1}</span>
-                  <div className="flex w-full flex-1 flex-col items-center justify-end gap-0.5">
+                  <div className="flex w-full flex-1 flex-col items-center justify-start gap-0.5">
                     {stack.length === 0 ? (
                       <span className="text-xs text-muted-foreground">—</span>
                     ) : (
@@ -231,7 +230,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
             <div className="mt-3 text-center text-xs text-muted-foreground">
               {selectedCol === null
                 ? dict.game.continueNo
-                : `Selected: ${selectedCol + 1} — click another stack to move`}
+                : "Select another column to move"}
             </div>
 
             <AnimatePresence>
