@@ -43,6 +43,10 @@ export const en = {
       name: "Memory",
       tagline: "Flip the cards, find every pair.",
     },
+    numsolis: {
+      name: "Numsolis",
+      tagline: "Clear number chains. A quiet number puzzle.",
+    },
     soon: {
       name: "More soon",
       tagline: "Nonograms, Lights Out and friends are on the way.",
@@ -174,6 +178,7 @@ export const en = {
     winSudoku: "The grid is complete and correct.",
     win2048: "You reached the 2048 tile!",
     winMemory: "Every pair found.",
+    winNumsolis: "You reached the target score!",
     gameOver: "No more moves",
     gameOverText: "The board is full. Try again?",
     keepGoing: "Keep going",
