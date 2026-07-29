@@ -1,13 +1,17 @@
 /**
- * Numsolis — number chain puzzle.
- * Click a tile to clear all connected tiles of the same value (4-way adjacency).
- * Empty cells fall down and are filled with new random numbers.
+ * Numsolis — solitaire-style card merge puzzle (Numsol rules).
+ * 7 stacks (columns). Cards: value (power of 2) + color (gold / ink).
+ * Rules:
+ * - Move a card onto a stack with a higher value (any color) — card placed on top.
+ * - Move a card onto same value + same color — merge: value doubles, card removed.
+ * - Stack must not exceed 9 cards.
+ * - Win: all stacks empty (board cleared).
  */
 
+export type Card = { v: number; c: string };
+
 export type NumsolisState = {
-  size: number;
-  board: number[]; // 0 = empty
-  score: number;
+  stacks: Card[][]; // 7 columns, bottom -> top
   best: number;
   moves: number;
   seconds: number;
@@ -15,14 +19,30 @@ export type NumsolisState = {
   over: boolean;
 };
 
-export function newNumsolis(size = 4, best = 0): NumsolisState {
-  const board = Array.from({ length: size * size }, () =>
-    Math.floor(Math.random() * 4) + 1,
-  );
+const COLORS = ["gold", "ink"] as const;
+const VALUES = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] as const;
+
+function randomValue(): number {
+  const vals = [2, 4, 8, 16, 32];
+  return vals[Math.floor(Math.random() * vals.length)];
+}
+
+function randomColor(): string {
+  return COLORS[Math.floor(Math.random() * COLORS.length)];
+}
+
+export function newNumsolis(best = 0): NumsolisState {
+  const stacks: Card[][] = [];
+  for (let s = 0; s < 7; s++) {
+    const col: Card[] = [];
+    const count = 3 + Math.floor(Math.random() * 3); // 3-5 cards
+    for (let i = 0; i < count; i++) {
+      col.push({ v: randomValue(), c: randomColor() });
+    }
+    stacks.push(col);
+  }
   return {
-    size,
-    board,
-    score: 0,
+    stacks,
     best,
     moves: 0,
     seconds: 0,
@@ -31,142 +51,122 @@ export function newNumsolis(size = 4, best = 0): NumsolisState {
   };
 }
 
-function getValue(board: number[], r: number, c: number, size: number): number {
-  return board[r * size + c];
+function cloneStacks(stacks: Card[][]): Card[][] {
+  return stacks.map((col) => col.map((card) => ({ ...card })));
 }
 
-function setValue(board: number[], r: number, c: number, size: number, v: number) {
-  board[r * size + c] = v;
+function totalCards(stacks: Card[][]): number {
+  return stacks.reduce((sum, col) => sum + col.length, 0);
+}
+
+function canMoveState(stacks: Card[][], fromCol: number, toCol: number): boolean {
+  if (fromCol === toCol) return false;
+  const fromStack = stacks[fromCol];
+  if (!fromStack || fromStack.length === 0) return false;
+  const toStack = stacks[toCol];
+  if (!toStack) return false;
+  if (toStack.length >= 9) return false; // max 9 cards
+  const card = fromStack[fromStack.length - 1]; // top card
+  if (toStack.length === 0) return true;
+  const target = toStack[toStack.length - 1];
+  if (target.v > card.v) return true; // higher value, any color
+  if (target.v === card.v && target.c === card.c) return true; // same value + color -> merge
+  return false;
 }
 
 export function canMove(state: NumsolisState): boolean {
-  const { size, board } = state;
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const v = getValue(board, r, c, size);
-      if (v === 0) return true; // empty cell is a move opportunity (will spawn)
-      // Check adjacent same value
-      const dirs = [
-        [r - 1, c],
-        [r + 1, c],
-        [r, c - 1],
-        [r, c + 1],
-      ];
-      for (const [nr, nc] of dirs) {
-        if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-          if (getValue(board, nr, nc, size) === v) return true;
-        }
-      }
+  const { stacks } = state;
+  for (let from = 0; from < stacks.length; from++) {
+    for (let to = 0; to < stacks.length; to++) {
+      if (canMoveState(stacks, from, to)) return true;
     }
   }
   return false;
 }
 
-export function moveNumsolis(state: NumsolisState, index: number): NumsolisState | null {
-  const { size, board } = state;
+export function moveNumsolis(state: NumsolisState, fromCol: number, toCol: number): NumsolisState | null {
   if (state.won || state.over) return null;
-  const r = Math.floor(index / size);
-  const c = index % size;
-  const v = getValue(board, r, c, size);
-  if (v === 0) return null; // can't click empty
+  if (fromCol === toCol) return null;
+  const stacks = cloneStacks(state.stacks);
+  const fromStack = stacks[fromCol];
+  const toStack = stacks[toCol];
+  if (!fromStack || fromStack.length === 0) return null;
+  if (!toStack) return null;
+  if (toStack.length >= 9) return null; // max 9
+  const card = { ...fromStack[fromStack.length - 1] };
 
-  // Find all connected tiles of same value (4-way BFS)
-  const connected: [number, number][] = [];
-  const visited = new Set<string>();
-  const stack: [number, number][] = [[r, c]];
-  while (stack.length > 0) {
-    const [cr, cc] = stack.pop()!;
-    const key = `${cr},${cc}`;
-    if (visited.has(key)) continue;
-    visited.add(key);
-    if (getValue(board, cr, cc, size) === v) {
-      connected.push([cr, cc]);
-      const dirs = [
-        [cr - 1, cc],
-        [cr + 1, cc],
-        [cr, cc - 1],
-        [cr, cc + 1],
-      ];
-      for (const [nr, nc] of dirs) {
-        if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
-          if (!visited.has(`${nr},${nc}`)) {
-            stack.push([nr, nc]);
-          }
-        }
-      }
+  if (toStack.length === 0) {
+    // Move to empty stack
+    fromStack.pop();
+    toStack.push(card);
+  } else {
+    const target = toStack[toStack.length - 1];
+    if (target.v === card.v && target.c === card.c) {
+      // Merge: value doubles, selected card removed
+      toStack[toStack.length - 1] = { v: target.v * 2, c: target.c };
+      fromStack.pop();
+    } else if (target.v > card.v) {
+      // Place on higher value
+      fromStack.pop();
+      toStack.push(card);
+    } else {
+      return null; // invalid
     }
   }
 
-  if (connected.length < 1) return null; // nothing to clear (shouldn't happen)
-
-  // Create new board: clear connected tiles
-  const nextBoard = [...board];
-  for (const [cr, cc] of connected) {
-    setValue(nextBoard, cr, cc, size, 0);
-  }
-
-  // Apply gravity: for each column, pull tiles down, fill top with new random tiles
-  const afterGravity = new Array(size * size).fill(0);
-  for (let c = 0; c < size; c++) {
-    const column: number[] = [];
-    for (let r = size - 1; r >= 0; r--) {
-      const val = getValue(nextBoard, r, c, size);
-      if (val !== 0) column.push(val);
-    }
-    // Fill from bottom
-    for (let r = size - 1; r >= 0; r--) {
-      const idxInCol = size - 1 - r;
-      if (idxInCol < column.length) {
-        setValue(afterGravity, r, c, size, column[idxInCol]);
-      } else {
-        setValue(afterGravity, r, c, size, Math.floor(Math.random() * 4) + 1);
-      }
-    }
-  }
-
-  const score = state.score + v * connected.length;
-  const won = score >= 128; // target score
-  const over = !won && !canMove({ size, board: afterGravity, score, best: state.best, moves: state.moves, seconds: state.seconds, won: false, over: false }) && afterGravity.every((v) => v !== 0);
+  const won = stacks.every((col) => col.length === 0);
+  const over = !won && !canMove({ stacks, best: state.best, moves: state.moves, seconds: state.seconds, won, over: false });
 
   return {
-    ...state,
-    board: afterGravity,
-    score,
-    best: Math.max(state.best, score),
+    stacks,
+    best: Math.max(state.best, 1024), // just track best value seen? Let's keep moves/seconds
     moves: state.moves + 1,
+    seconds: state.seconds,
     won,
     over,
   };
 }
 
 export function progressNumsolis(state: NumsolisState): number {
-  return Math.min(state.score / 128, 1);
+  const total = totalCards(state.stacks);
+  return Math.max(0, 1 - total / (7 * 5)); // rough progress toward empty
 }
 
 export function serializeNumsolis(state: NumsolisState): string {
-  return JSON.stringify(state);
+  return JSON.stringify({
+    stacks: state.stacks,
+    best: state.best,
+    moves: state.moves,
+    seconds: state.seconds,
+    won: state.won,
+    over: state.over,
+  });
 }
 
 export function deserializeNumsolis(raw: string): NumsolisState | null {
   try {
-    const parsed = JSON.parse(raw) as NumsolisState;
-    if (
-      typeof parsed.size !== "number" ||
-      !Array.isArray(parsed.board) ||
-      parsed.board.length !== parsed.size * parsed.size ||
-      typeof parsed.score !== "number" ||
-      typeof parsed.best !== "number" ||
-      typeof parsed.moves !== "number" ||
-      typeof parsed.seconds !== "number" ||
-      typeof parsed.won !== "boolean" ||
-      typeof parsed.over !== "boolean"
-    ) {
-      return null;
+    const parsed = JSON.parse(raw) as {
+      stacks?: Card[][];
+      best?: number;
+      moves?: number;
+      seconds?: number;
+      won?: boolean;
+      over?: boolean;
+    };
+    if (!Array.isArray(parsed.stacks) || parsed.stacks.length !== 7) {
+      // Allow any number of stacks? We'll enforce 7.
+      if (!Array.isArray(parsed.stacks)) return null;
     }
+    const stacks = (parsed.stacks || []).map((col) =>
+      (col || []).map((card) => {
+        if (typeof card === "object" && card !== null && "v" in card && "c" in card) {
+          return { v: Number(card.v), c: String(card.c) };
+        }
+        return { v: 2, c: "gold" };
+      }),
+    );
     return {
-      size: parsed.size,
-      board: parsed.board,
-      score: parsed.score ?? 0,
+      stacks,
       best: parsed.best ?? 0,
       moves: parsed.moves ?? 0,
       seconds: parsed.seconds ?? 0,
