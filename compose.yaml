@@ -1,0 +1,24 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # исходники с хоста — правки подхватываются на лету
+      - .:/app
+      # а эти каталоги остаются "контейнерными" и НЕ перекрываются хостом:
+      - node_modules:/app/node_modules
+      - next_cache:/app/.next
+    environment:
+      - SESSION_SECRET=dev-secret-change-me
+      # токен бота для авторизации через Telegram Mini Apps (initData)
+      # без него /api/auth/telegram отвечает 503, всё остальное работает
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      # чтобы file-watcher надёжно работал через bind-mount (Windows/WSL/macOS)
+      - WATCHPACK_POLLING=true
+
+volumes:
+  node_modules:
+  next_cache:

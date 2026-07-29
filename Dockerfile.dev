@@ -1,0 +1,24 @@
+# Dev-образ: горячая перезагрузка через bind-mount исходников.
+# ВАЖНО: node_modules и .next должны оставаться внутри контейнера
+# (анонимные volume в docker run / compose), иначе bind-mount с хоста
+# спрячет установленные пакеты и `next` не будет найден.
+
+FROM node:22-alpine
+WORKDIR /app
+
+# .npmrc содержит legacy-peer-deps=true — без него npm install упадёт
+COPY package*.json .npmrc ./
+RUN npm install
+
+COPY . .
+
+# Prisma Client генерируется в src/generated, но перегенерируем на всякий случай
+RUN npx prisma generate
+
+EXPOSE 3000
+
+# db push создаёт/обновляет SQLite-базу (лежит в bind-mount, переживёт контейнер)
+# npm install на старте синхронизирует node_modules в volume с package.json:
+# именованный volume наполняется из образа только при первом создании,
+# поэтому без этого шага новые зависимости "не появляются" в контейнере.
+CMD ["sh", "-c", "npm install && npx prisma db push && npm run dev"]

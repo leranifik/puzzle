@@ -1,0 +1,28 @@
+[Unit]
+Description=PuzzleHub (Next.js standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=puzzlehub
+Group=puzzlehub
+WorkingDirectory=/opt/puzzlehub/current
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+# --- environment ---
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+# secrets & paths live in a separate file, see DEPLOY.md
+EnvironmentFile=/etc/puzzlehub/env
+
+# --- hardening (optional but free) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/puzzlehub
+
+[Install]
+WantedBy=multi-user.target

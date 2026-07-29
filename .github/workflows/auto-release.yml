@@ -1,0 +1,80 @@
+name: Auto Release
+
+# One-click release without typing a version:
+# Actions → Auto Release → Run workflow → pick bump type (patch by default).
+# The next version is computed from the latest v* tag:
+#   v1.2.3 + patch -> 1.2.4 | + minor -> 1.3.0 | + major -> 2.0.0
+# If the repo has no release tags yet, the first version is 0.1.0.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which part of the version to bump"
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  next-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+    steps:
+      - name: Checkout (with tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so all tags are available
+
+      - name: Compute next version
+        id: calc
+        run: |
+          set -euo pipefail
+          # Prefer the latest STABLE tag; git's version sort ranks v1.2.3-rc.1
+          # above v1.2.3, so prereleases would otherwise skew the bump.
+          LATEST=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -v -- '-' | head -n1 || true)
+          if [ -z "$LATEST" ]; then
+            # no stable releases yet — fall back to prerelease tags if any
+            LATEST=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n1 || true)
+          fi
+          if [ -z "$LATEST" ]; then
+            VERSION="0.1.0"
+            echo "No previous release tags — starting at $VERSION"
+          else
+            BASE="${LATEST#v}"
+            BASE="${BASE%%-*}"   # strip any -rc/-beta suffix before bumping
+            IFS=. read -r MAJOR MINOR PATCH <<< "$BASE"
+            case "${{ inputs.bump }}" in
+              major) VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+              patch) VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+            esac
+            echo "Latest tag: $LATEST -> next version: $VERSION (${{ inputs.bump }})"
+          fi
+          # guard against an existing tag (e.g. created manually)
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists — release manually via the Release workflow"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          echo "### 🚀 Releasing v${{ steps.calc.outputs.version }} (${{ inputs.bump }} bump)" >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    needs: next-version
+    uses: ./.github/workflows/build-release.yml
+    permissions:
+      contents: write
+    with:
+      version: ${{ needs.next-version.outputs.version }}
+      prerelease: ${{ inputs.prerelease }}

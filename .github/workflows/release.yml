@@ -1,0 +1,39 @@
+name: Release
+
+# Manual release with an explicit version:
+# Actions → Release → Run workflow → type e.g. 1.2.0.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.0). Tag v<version> will be created."
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'${{ inputs.version }}' is not a valid semver (expected e.g. 1.2.3 or 1.2.3-rc.1)"
+            exit 1
+          fi
+
+  release:
+    needs: validate
+    uses: ./.github/workflows/build-release.yml
+    permissions:
+      contents: write
+    with:
+      version: ${{ inputs.version }}
+      prerelease: ${{ inputs.prerelease }}

@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Player {
+  id           String   @id
+  name         String   @default("Guest")
+  email        String?  @unique
+  passwordHash String?
+  telegramId   String?  @unique
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  saves        GameSave[]
+  results      GameResult[]
+  linkTokens   LinkToken[]
+}
+
+/// Lightweight product analytics: one row per event, no IP / fingerprinting.
+model Event {
+  id        String   @id @default(cuid())
+  type      String
+  playerId  String?
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([createdAt])
+}
+
+model LinkToken {
+  token     String    @id
+  playerId  String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+  player    Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId])
+}
+
+model GameSave {
+  id        String   @id @default(cuid())
+  playerId  String
+  game      String
+  state     String
+  progress  Float    @default(0)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, game])
+}
+
+model GameResult {
+  id        String   @id @default(cuid())
+  playerId  String
+  game      String
+  moves     Int      @default(0)
+  seconds   Int      @default(0)
+  meta      String   @default("{}")
+  createdAt DateTime @default(now())
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@index([playerId, game])
+}
