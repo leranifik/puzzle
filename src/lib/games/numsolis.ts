@@ -76,6 +76,21 @@ function canMoveState(stacks: Card[][], fromCol: number, toCol: number): boolean
   return false;
 }
 
+function collapseStacks(stacks: Card[][]): Card[][] {
+  const collapsed = stacks.map((col) => {
+    const newCol: Card[] = [...col];
+    for (let i = 0; i < newCol.length - 1; i++) {
+      if (newCol[i].v === newCol[i + 1].v && newCol[i].c === newCol[i + 1].c) {
+        newCol[i] = { v: newCol[i].v * 2, c: newCol[i].c };
+        newCol.splice(i + 1, 1);
+        i = Math.max(-1, i - 1);
+      }
+    }
+    return newCol;
+  });
+  return collapsed;
+}
+
 export function canMove(state: NumsolisState): boolean {
   const { stacks } = state;
   for (let from = 0; from < stacks.length; from++) {
@@ -116,11 +131,12 @@ export function moveNumsolis(state: NumsolisState, fromCol: number, toCol: numbe
     }
   }
 
-  const won = stacks.every((col) => col.length === 0);
-  const over = !won && !canMove({ stacks, best: state.best, moves: state.moves, seconds: state.seconds, won, over: false });
+  const stacksAfterMove = collapseStacks(stacks);
+  const won = stacksAfterMove.every((col) => col.length === 0);
+  const over = !won && !canMove({ stacks: stacksAfterMove, best: state.best, moves: state.moves, seconds: state.seconds, won, over: false });
 
   return {
-    stacks,
+    stacks: stacksAfterMove,
     best: Math.max(state.best, 1024), // just track best value seen? Let's keep moves/seconds
     moves: state.moves + 1,
     seconds: state.seconds,

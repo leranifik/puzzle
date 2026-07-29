@@ -181,15 +181,13 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
           </div>
         ) : (
           <>
-            <div className="flex items-start gap-2 overflow-x-auto px-1 pb-2">
+            <div className="flex items-start gap-1 overflow-x-auto px-1 pb-2">
               {state.stacks.map((stack, colIndex) => (
                 <button
                   key={colIndex}
                   onClick={() => handleColClick(colIndex)}
-                  className={`group relative flex min-h-[200px] w-16 shrink-0 flex-col items-center rounded-lg border-2 p-1 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 sm:w-20 sm:p-2 ${
-                    selectedCol === colIndex
-                      ? "border-gold bg-card shadow-lg shadow-gold/10"
-                      : "border-surface bg-card/60 hover:border-gold/40"
+                  className={`group relative flex min-h-[200px] w-14 shrink-0 flex-col items-center rounded-md p-0.5 transition-colors focus-visible:outline-2 focus-visible:outline-gold focus-visible:outline-offset-2 sm:w-16 sm:p-1 ${
+                    selectedCol === colIndex ? "bg-card/80 shadow-inner shadow-gold/10" : "bg-transparent hover:bg-card/40"
                   }`}
                   aria-label={`Column ${colIndex + 1}`}
                 >
