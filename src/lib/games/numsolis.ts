@@ -1,22 +1,27 @@
 /**
  * Numsolis — a solitaire-like power-of-two card puzzle.
  *
- * The last card in each column is exposed. It can be moved onto a strictly
- * higher card (color does not matter), or onto a card with the same value and
- * color. Equal cards merge immediately; two 1024 cards leave the board.
+ * A card and every card below it form a movable packet. The packet can land
+ * on a strictly higher card (color does not matter), or on a card with the
+ * same value and color. Equal neighbors merge automatically up to 2048.
+ * Empty columns are locked and can never receive cards.
  *
- * Deals are built backwards from the empty board. Reversing every split gives
- * us a concrete winning sequence, so every generated deal is provably
- * solvable rather than merely shuffled until it looks plausible.
+ * Deals are built backwards from their solved form (one visible 2048 per
+ * color). Reversing every split gives a concrete winning sequence, so every
+ * generated deal is provably solvable.
  */
 
 export const NUMSOLIS_COLUMN_COUNT = 6;
 export const NUMSOLIS_MAX_STACK = 9;
-export const NUMSOLIS_MAX_VALUE = 1024;
-export const NUMSOLIS_INITIAL_CARDS = 40;
+export const NUMSOLIS_MAX_VALUE = 2048;
 
-export const NUMSOLIS_COLORS = ["amber", "ivory", "silver", "ruby"] as const;
+export const NUMSOLIS_COLORS = ["amber", "ivory"] as const;
 export type NumsolisColor = (typeof NUMSOLIS_COLORS)[number];
+export type NumsolisColorCount = 1 | 2;
+
+export function numsolisInitialCardCount(colorCount: NumsolisColorCount): number {
+  return colorCount === 1 ? 32 : 36;
+}
 
 export type NumsolisCard = {
   id: number;
@@ -27,6 +32,7 @@ export type NumsolisCard = {
 export type NumsolisState = {
   columns: NumsolisCard[][];
   nextId: number;
+  colorCount: NumsolisColorCount;
   initialCards: number;
   moves: number;
   seconds: number;
@@ -37,12 +43,13 @@ export type NumsolisMove = {
   to: number;
 };
 
-export type NumsolisMoveOutcome = "none" | "moved" | "merged" | "cleared";
+export type NumsolisMoveOutcome = "none" | "moved" | "merged";
 
 export type NumsolisMoveResult = {
   state: NumsolisState;
   outcome: NumsolisMoveOutcome;
   merges: number;
+  mergedCardId: number | null;
 };
 
 type Random = () => number;
@@ -69,11 +76,50 @@ function sameCardFace(a: NumsolisCard | undefined, b: NumsolisCard | undefined):
   return !!a && !!b && a.value === b.value && a.color === b.color;
 }
 
-/** Whether the exposed card at `from` can be placed on column `to`. */
-export function canMoveNumsolis(state: NumsolisState, from: number, to: number): boolean {
+/**
+ * Normalize all equal neighboring faces in a column. Keeping the lower card's
+ * id makes the merge survivor stable for layout and collapse animations.
+ */
+function collapseColumn(column: NumsolisCard[]): {
+  column: NumsolisCard[];
+  merges: number;
+  mergedCardId: number | null;
+} {
+  const cards = column.map((card) => ({ ...card }));
+  let merges = 0;
+  let mergedCardId: number | null = null;
+  let index = 0;
+
+  while (index < cards.length - 1) {
+    const target = cards[index];
+    const moving = cards[index + 1];
+    if (!sameCardFace(target, moving) || target.value >= NUMSOLIS_MAX_VALUE) {
+      index++;
+      continue;
+    }
+
+    const merged = { ...target, value: target.value * 2 };
+    cards.splice(index, 2, merged);
+    merges++;
+    mergedCardId = merged.id;
+    // A merge may now match a neighbor on either side.
+    index = Math.max(0, index - 1);
+  }
+
+  return { column: cards, merges, mergedCardId };
+}
+
+/** Whether a packet beginning at `fromIndex` can be placed on column `to`. */
+export function canMoveNumsolis(
+  state: NumsolisState,
+  from: number,
+  to: number,
+  fromIndex = state.columns[from]?.length - 1,
+): boolean {
   if (
     !Number.isInteger(from) ||
     !Number.isInteger(to) ||
+    !Number.isInteger(fromIndex) ||
     from < 0 ||
     from >= NUMSOLIS_COLUMN_COUNT ||
     to < 0 ||
@@ -83,71 +129,47 @@ export function canMoveNumsolis(state: NumsolisState, from: number, to: number):
     return false;
   }
 
-  const moving = top(state.columns[from]);
-  const target = top(state.columns[to]);
-  // As in Numsol, an empty column is closed: every move lands on a card.
+  const source = state.columns[from];
+  const destination = state.columns[to];
+  if (fromIndex < 0 || fromIndex >= source.length) return false;
+
+  const moving = source[fromIndex];
+  const target = top(destination);
+  // An empty column is permanently locked: every move must land on a card.
   if (!moving || !target) return false;
 
-  if (sameCardFace(moving, target)) return true;
-  return target.value > moving.value && state.columns[to].length < NUMSOLIS_MAX_STACK;
-}
+  const mergesAtBoundary =
+    sameCardFace(moving, target) && moving.value < NUMSOLIS_MAX_VALUE;
+  if (!mergesAtBoundary && target.value <= moving.value) return false;
 
-/**
- * Collapse every equal face touching at the exposed end of a column.
- * The destination card keeps its stable id, which lets the UI animate a
- * moved card into it. A chain can perform several automatic merges.
- */
-function collapseExposed(column: NumsolisCard[]): {
-  column: NumsolisCard[];
-  merges: number;
-  removed1024: boolean;
-} {
-  const cards = [...column];
-  let merges = 0;
-  let removed1024 = false;
-
-  while (cards.length >= 2) {
-    const moving = cards[cards.length - 1];
-    const target = cards[cards.length - 2];
-    if (!sameCardFace(moving, target)) break;
-
-    cards.pop();
-    cards.pop();
-    merges++;
-    if (target.value === NUMSOLIS_MAX_VALUE) {
-      removed1024 = true;
-    } else {
-      cards.push({ ...target, value: target.value * 2 });
-    }
-  }
-
-  return { column: cards, merges, removed1024 };
+  // A packet may only be placed when the normalized result respects the
+  // nine-card limit. Matching at the boundary can make an otherwise full
+  // destination legal because the collapse is immediate.
+  const packet = source.slice(fromIndex);
+  const collapsed = collapseColumn([...destination, ...packet]);
+  return collapsed.column.length <= NUMSOLIS_MAX_STACK;
 }
 
 export function moveNumsolis(
   state: NumsolisState,
   from: number,
   to: number,
+  fromIndex = state.columns[from]?.length - 1,
 ): NumsolisMoveResult {
-  if (!canMoveNumsolis(state, from, to)) {
-    return { state, outcome: "none", merges: 0 };
+  if (!canMoveNumsolis(state, from, to, fromIndex)) {
+    return { state, outcome: "none", merges: 0, mergedCardId: null };
   }
 
-  const columns = state.columns.map((column) => [...column]);
-  const moving = columns[from].pop()!;
-  columns[to].push(moving);
-  const collapsed = collapseExposed(columns[to]);
+  const columns = state.columns.map((column) => column.map((card) => ({ ...card })));
+  const packet = columns[from].splice(fromIndex);
+  const collapsed = collapseColumn([...columns[to], ...packet]);
   columns[to] = collapsed.column;
 
   return {
     state: { ...state, columns, moves: state.moves + 1 },
-    outcome:
-      collapsed.merges === 0
-        ? "moved"
-        : collapsed.removed1024
-          ? "cleared"
-          : "merged",
+    outcome: collapsed.merges > 0 ? "merged" : "moved",
     merges: collapsed.merges,
+    mergedCardId: collapsed.mergedCardId,
   };
 }
 
@@ -156,19 +178,30 @@ export function numsolisCardCount(state: NumsolisState): number {
 }
 
 export function isNumsolisComplete(state: NumsolisState): boolean {
-  return numsolisCardCount(state) === 0;
+  const cards = state.columns.flat();
+  const activeColors = NUMSOLIS_COLORS.slice(0, state.colorCount);
+  return (
+    cards.length === state.colorCount &&
+    activeColors.every(
+      (color) =>
+        cards.filter((card) => card.color === color && card.value === NUMSOLIS_MAX_VALUE).length === 1,
+    )
+  );
 }
 
 export function numsolisProgress(state: NumsolisState): number {
-  if (state.initialCards <= 0) return 0;
-  return Math.min(1, Math.max(0, 1 - numsolisCardCount(state) / state.initialCards));
+  const mergesNeeded = state.initialCards - state.colorCount;
+  if (mergesNeeded <= 0) return isNumsolisComplete(state) ? 1 : 0;
+  const mergesDone = state.initialCards - numsolisCardCount(state);
+  return Math.min(1, Math.max(0, mergesDone / mergesNeeded));
 }
 
-function emptyState(): NumsolisState {
+function emptyState(colorCount: NumsolisColorCount): NumsolisState {
   return {
     columns: Array.from({ length: NUMSOLIS_COLUMN_COUNT }, () => []),
     nextId: 1,
-    initialCards: NUMSOLIS_INITIAL_CARDS,
+    colorCount,
+    initialCards: numsolisInitialCardCount(colorCount),
     moves: 0,
     seconds: 0,
   };
@@ -191,36 +224,33 @@ function candidateColumnsForPush(
     .map(({ index }) => index);
 }
 
-/**
- * One reverse-generation attempt. Every recorded operation is the exact
- * inverse of the split/add operation that created the deal.
- */
-function tryGenerate(random: Random): { state: NumsolisState; solution: NumsolisMove[] } | null {
-  const state = emptyState();
+/** One reverse-generation attempt. */
+function tryGenerate(
+  colorCount: NumsolisColorCount,
+  random: Random,
+): { state: NumsolisState; solution: NumsolisMove[] } | null {
+  const state = emptyState(colorCount);
   const reverseSteps: NumsolisMove[] = [];
 
-  // The solved form of each color is a pair of 1024 cards. In forward play,
-  // each pair merges away; here we add those pairs to begin reverse play.
-  for (const color of NUMSOLIS_COLORS) {
-    const firstCandidates = candidateColumnsForPush(state, -1, { value: 1024, color });
-    if (firstCandidates.length === 0) return null;
-    const shortestFirst = firstCandidates.filter(
-      (index) => state.columns[index].length === state.columns[firstCandidates[0]].length,
+  // Begin at the solved board. A 2048 remains visible and cannot merge again.
+  for (const color of NUMSOLIS_COLORS.slice(0, colorCount)) {
+    const candidates = candidateColumnsForPush(state, -1, {
+      value: NUMSOLIS_MAX_VALUE,
+      color,
+    });
+    if (candidates.length === 0) return null;
+    const shortest = candidates.filter(
+      (index) => state.columns[index].length === state.columns[candidates[0]].length,
     );
-    const from = shortestFirst[randomIndex(shortestFirst.length, random)];
-    state.columns[from].push({ id: state.nextId++, value: 1024, color });
-
-    const secondCandidates = candidateColumnsForPush(state, from, { value: 1024, color });
-    if (secondCandidates.length === 0) return null;
-    const shortestSecond = secondCandidates.filter(
-      (index) => state.columns[index].length === state.columns[secondCandidates[0]].length,
-    );
-    const to = shortestSecond[randomIndex(shortestSecond.length, random)];
-    state.columns[to].push({ id: state.nextId++, value: 1024, color });
-    reverseSteps.push({ from, to });
+    const destination = shortest[randomIndex(shortest.length, random)];
+    state.columns[destination].push({
+      id: state.nextId++,
+      value: NUMSOLIS_MAX_VALUE,
+      color,
+    });
   }
 
-  while (numsolisCardCount(state) < NUMSOLIS_INITIAL_CARDS) {
+  while (numsolisCardCount(state) < state.initialCards) {
     const splits: { destination: number; origin: number }[] = [];
 
     for (let destination = 0; destination < NUMSOLIS_COLUMN_COUNT; destination++) {
@@ -237,10 +267,10 @@ function tryGenerate(random: Random): { state: NumsolisState; solution: Numsolis
 
     if (splits.length === 0) return null;
 
-    // Prefer a short origin so the six stacks remain balanced, then use the
-    // supplied random source only to vary equally good choices.
     const minOriginHeight = Math.min(...splits.map(({ origin }) => state.columns[origin].length));
-    const balanced = splits.filter(({ origin }) => state.columns[origin].length <= minOriginHeight + 1);
+    const balanced = splits.filter(
+      ({ origin }) => state.columns[origin].length <= minOriginHeight + 1,
+    );
     const { destination, origin } = balanced[randomIndex(balanced.length, random)];
     const parent = top(state.columns[destination])!;
     const value = parent.value / 2;
@@ -268,36 +298,33 @@ function tryGenerate(random: Random): { state: NumsolisState; solution: Numsolis
   return { state, solution };
 }
 
-/**
- * Generate a deal together with its certificate (a winning move sequence).
- * Supplying a seeded random function is useful for invariant tests.
- */
+/** Generate a deal together with a legal winning certificate. */
 export function createNumsolisGame(
+  colorCount: NumsolisColorCount = 2,
   random: Random = Math.random,
 ): { state: NumsolisState; solution: NumsolisMove[] } {
   for (let attempt = 0; attempt < 64; attempt++) {
-    const generated = tryGenerate(random);
+    const generated = tryGenerate(colorCount, random);
     if (generated) return generated;
   }
 
-  // A caller can supply a deliberately pathological source (or one whose
-  // short cycle repeatedly reaches a dead end). Fall back to a known full-
-  // period LCG so generation still has a total, deterministic escape path.
-  let seed = 0x9e3779b9;
+  // Escape a deliberately pathological supplied random source with a known
+  // full-period deterministic generator.
+  let seed = 1;
   const fallback = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 0x1_0000_0000;
   };
   for (let attempt = 0; attempt < 64; attempt++) {
-    const generated = tryGenerate(fallback);
+    const generated = tryGenerate(colorCount, fallback);
     if (generated) return generated;
   }
 
   throw new Error("Unable to generate a solvable Numsolis deal");
 }
 
-export function newNumsolis(): NumsolisState {
-  return createNumsolisGame().state;
+export function newNumsolis(colorCount: NumsolisColorCount = 2): NumsolisState {
+  return createNumsolisGame(colorCount).state;
 }
 
 export function serializeNumsolis(state: NumsolisState): string {
@@ -305,7 +332,7 @@ export function serializeNumsolis(state: NumsolisState): string {
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isNormalized(columns: NumsolisCard[][]): boolean {
@@ -317,10 +344,16 @@ function isNormalized(columns: NumsolisCard[][]): boolean {
 export function deserializeNumsolis(raw: string): NumsolisState | null {
   try {
     const parsed = JSON.parse(raw) as Partial<NumsolisState>;
-    if (!Array.isArray(parsed.columns) || parsed.columns.length !== NUMSOLIS_COLUMN_COUNT) {
+    if (
+      !Array.isArray(parsed.columns) ||
+      parsed.columns.length !== NUMSOLIS_COLUMN_COUNT ||
+      (parsed.colorCount !== 1 && parsed.colorCount !== 2)
+    ) {
       return null;
     }
 
+    const colorCount = parsed.colorCount;
+    const activeColors = NUMSOLIS_COLORS.slice(0, colorCount);
     const ids = new Set<number>();
     const columns: NumsolisCard[][] = [];
     for (const rawColumn of parsed.columns) {
@@ -332,7 +365,7 @@ export function deserializeNumsolis(raw: string): NumsolisState | null {
           rawCard.id === 0 ||
           ids.has(rawCard.id) ||
           !isNumsolisValue(rawCard?.value) ||
-          !NUMSOLIS_COLORS.includes(rawCard?.color as NumsolisColor)
+          !activeColors.includes(rawCard?.color as NumsolisColor)
         ) {
           return null;
         }
@@ -346,14 +379,21 @@ export function deserializeNumsolis(raw: string): NumsolisState | null {
       columns.push(column);
     }
 
-    const count = columns.reduce((sum, column) => sum + column.length, 0);
+    const cards = columns.flat();
+    const count = cards.length;
+    const massIsValid = activeColors.every(
+      (color) =>
+        cards
+          .filter((card) => card.color === color)
+          .reduce((sum, card) => sum + card.value, 0) === NUMSOLIS_MAX_VALUE,
+    );
     if (
       !isNormalized(columns) ||
+      !massIsValid ||
       !isNonNegativeInteger(parsed.moves) ||
       !isNonNegativeInteger(parsed.seconds) ||
-      !isNonNegativeInteger(parsed.initialCards) ||
+      parsed.initialCards !== numsolisInitialCardCount(colorCount) ||
       parsed.initialCards < count ||
-      parsed.initialCards > NUMSOLIS_COLUMN_COUNT * NUMSOLIS_MAX_STACK ||
       !isNonNegativeInteger(parsed.nextId) ||
       parsed.nextId <= Math.max(0, ...ids)
     ) {
@@ -363,6 +403,7 @@ export function deserializeNumsolis(raw: string): NumsolisState | null {
     return {
       columns,
       nextId: parsed.nextId,
+      colorCount,
       initialCards: parsed.initialCards,
       moves: parsed.moves,
       seconds: parsed.seconds,

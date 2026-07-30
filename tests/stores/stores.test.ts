@@ -156,33 +156,70 @@ describe("2048 store", () => {
 describe("numsolis store", () => {
   beforeEach(() => useNumsolisStore.getState().reset());
 
-  it("moves, auto-merges, ticks and detects the final clear", () => {
+  it("merges to a visible 2048, wins, and can undo the move", () => {
     const store = useNumsolisStore.getState;
     store().init({
       columns: [
-        [{ id: 1, value: 1024, color: "ruby" }],
-        [{ id: 2, value: 1024, color: "ruby" }],
+        [{ id: 1, value: 1024, color: "amber" }],
+        [{ id: 2, value: 1024, color: "amber" }],
         [], [], [], [],
       ],
       nextId: 3,
+      colorCount: 1,
       initialCards: 2,
       moves: 0,
       seconds: 0,
     });
     store().tick();
     expect(store().state?.seconds).toBe(1);
-    expect(store().move(0, 1)).toBe("cleared");
+    expect(store().move(0, 1)).toBe("merged");
     expect(store().won).toBe(true);
-    expect(store().state?.moves).toBe(1);
-    expect(store().move(0, 1)).toBe("none");
+    expect(store().state?.columns[1][0].value).toBe(2048);
+    expect(store().canUndo).toBe(true);
+    expect(store().revision).toBe(1);
+
+    expect(store().undo()).toBe(true);
+    expect(store().won).toBe(false);
+    expect(store().state?.moves).toBe(0);
+    expect(store().state?.seconds).toBe(1); // undo does not rewind the clock
+    expect(store().canUndo).toBe(false);
+    expect(store().revision).toBe(2);
+    expect(store().undo()).toBe(false);
   });
 
-  it("newGame creates a six-column solvable deal", () => {
-    useNumsolisStore.getState().newGame();
-    const state = useNumsolisStore.getState().state!;
-    expect(state.columns).toHaveLength(6);
-    expect(state.columns.every((column) => column.length <= 9)).toBe(true);
-    expect(useNumsolisStore.getState().won).toBe(false);
+  it("moves a packet and stores the previous state in undo history", () => {
+    const store = useNumsolisStore.getState;
+    store().init({
+      columns: [
+        [
+          { id: 1, value: 16, color: "amber" },
+          { id: 2, value: 8, color: "ivory" },
+        ],
+        [{ id: 3, value: 32, color: "ivory" }],
+        [], [], [], [],
+      ],
+      nextId: 4,
+      colorCount: 2,
+      initialCards: 3,
+      moves: 0,
+      seconds: 0,
+    });
+    expect(store().move(0, 1, 0)).toBe("moved");
+    expect(store().state?.columns[0]).toEqual([]);
+    expect(store().state?.columns[1]).toHaveLength(3);
+    expect(store().undo()).toBe(true);
+    expect(store().state?.columns[0]).toHaveLength(2);
+  });
+
+  it("newGame supports one- and two-color deals", () => {
+    for (const colorCount of [1, 2] as const) {
+      useNumsolisStore.getState().newGame(colorCount);
+      const state = useNumsolisStore.getState().state!;
+      expect(state.colorCount).toBe(colorCount);
+      expect(state.columns).toHaveLength(6);
+      expect(state.columns.every((column) => column.length > 0 && column.length <= 9)).toBe(true);
+      expect(useNumsolisStore.getState().won).toBe(false);
+    }
   });
 });
 

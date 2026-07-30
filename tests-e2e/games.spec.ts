@@ -171,7 +171,7 @@ test.describe("2048", () => {
 });
 
 test.describe("numsolis", () => {
-  test("renders one six-column tableau and automatically merges a matching pair", async ({ page }) => {
+  test("merges, undoes, and switches between one and two colors", async ({ page }) => {
     await page.goto("/en/play/numsolis");
     await dismissContinueDialog(page);
 
@@ -179,25 +179,37 @@ test.describe("numsolis", () => {
     await expect(board).toBeVisible();
     const columns = board.locator("[data-numsolis-column]");
     await expect(columns).toHaveCount(6);
-    await expect(board.locator("[role=gridcell]")).toHaveCount(40);
+    await expect(board.locator("[data-numsolis-card]")).toHaveCount(36);
     await expect(board.locator("[data-stack-limit]")).toBeVisible();
 
     const pair = await board.evaluate((node) => {
-      const exposed = [...node.querySelectorAll<HTMLButtonElement>("button[role=gridcell]")];
+      const exposed = [
+        ...node.querySelectorAll<HTMLButtonElement>("button[data-exposed=true]"),
+      ];
       for (let i = 0; i < exposed.length; i++) {
         for (let j = i + 1; j < exposed.length; j++) {
-          if (exposed[i].ariaLabel === exposed[j].ariaLabel) return [i, j];
+          if (exposed[i].getAttribute("aria-label") === exposed[j].getAttribute("aria-label")) {
+            return [i, j];
+          }
         }
       }
       return null;
     });
     expect(pair).not.toBeNull();
 
-    const exposed = board.locator("button[role=gridcell]");
+    const exposed = board.locator("button[data-exposed=true]");
     await exposed.nth(pair![0]).click();
     await exposed.nth(pair![1]).click();
     await expect(page.locator(".font-display.tabular-nums").first()).toHaveText("1");
-    await expect(board.locator("[role=gridcell]")).toHaveCount(39);
+    await expect(board.locator("[data-numsolis-card]")).toHaveCount(35);
+
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(page.locator(".font-display.tabular-nums").first()).toHaveText("0");
+    await expect(board.locator("[data-numsolis-card]")).toHaveCount(36);
+
+    await page.getByRole("combobox", { name: "Colors" }).click();
+    await page.getByRole("option", { name: "1 color" }).click();
+    await expect(board.locator("[data-numsolis-card]")).toHaveCount(32);
   });
 });
 
