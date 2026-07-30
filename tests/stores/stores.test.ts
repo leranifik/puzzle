@@ -3,6 +3,7 @@ import { useFifteenStore } from "@/stores/fifteen-store";
 import { useSudokuStore } from "@/stores/sudoku-store";
 import { use2048Store } from "@/stores/g2048-store";
 import { useMemoryStore } from "@/stores/memory-store";
+import { useNumsolisStore } from "@/stores/numsolis-store";
 import { newSudoku } from "@/lib/games/sudoku";
 import type { FifteenState } from "@/lib/games/fifteen";
 
@@ -149,6 +150,39 @@ describe("2048 store", () => {
       nextId: 2, score: 0, best: 0, moves: 0, seconds: 0, over: false, reached2048: true,
     });
     expect(store().dismissedWin).toBe(true);
+  });
+});
+
+describe("numsolis store", () => {
+  beforeEach(() => useNumsolisStore.getState().reset());
+
+  it("moves, auto-merges, ticks and detects the final clear", () => {
+    const store = useNumsolisStore.getState;
+    store().init({
+      columns: [
+        [{ id: 1, value: 1024, color: "ruby" }],
+        [{ id: 2, value: 1024, color: "ruby" }],
+        [], [], [], [],
+      ],
+      nextId: 3,
+      initialCards: 2,
+      moves: 0,
+      seconds: 0,
+    });
+    store().tick();
+    expect(store().state?.seconds).toBe(1);
+    expect(store().move(0, 1)).toBe("cleared");
+    expect(store().won).toBe(true);
+    expect(store().state?.moves).toBe(1);
+    expect(store().move(0, 1)).toBe("none");
+  });
+
+  it("newGame creates a six-column solvable deal", () => {
+    useNumsolisStore.getState().newGame();
+    const state = useNumsolisStore.getState().state!;
+    expect(state.columns).toHaveLength(6);
+    expect(state.columns.every((column) => column.length <= 9)).toBe(true);
+    expect(useNumsolisStore.getState().won).toBe(false);
   });
 });
 

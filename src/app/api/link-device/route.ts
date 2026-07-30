@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { prisma } from "@/lib/prisma";
 import { ensurePlayer } from "@/lib/session";
 
-export const LINK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const LINK_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * POST /api/link-device — issue a short-lived, single-use device link

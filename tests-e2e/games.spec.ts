@@ -170,6 +170,37 @@ test.describe("2048", () => {
   });
 });
 
+test.describe("numsolis", () => {
+  test("renders one six-column tableau and automatically merges a matching pair", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+
+    const board = page.getByRole("grid", { name: "Numsolis" });
+    await expect(board).toBeVisible();
+    const columns = board.locator("[data-numsolis-column]");
+    await expect(columns).toHaveCount(6);
+    await expect(board.locator("[role=gridcell]")).toHaveCount(40);
+    await expect(board.locator("[data-stack-limit]")).toBeVisible();
+
+    const pair = await board.evaluate((node) => {
+      const exposed = [...node.querySelectorAll<HTMLButtonElement>("button[role=gridcell]")];
+      for (let i = 0; i < exposed.length; i++) {
+        for (let j = i + 1; j < exposed.length; j++) {
+          if (exposed[i].ariaLabel === exposed[j].ariaLabel) return [i, j];
+        }
+      }
+      return null;
+    });
+    expect(pair).not.toBeNull();
+
+    const exposed = board.locator("button[role=gridcell]");
+    await exposed.nth(pair![0]).click();
+    await exposed.nth(pair![1]).click();
+    await expect(page.locator(".font-display.tabular-nums").first()).toHaveText("1");
+    await expect(board.locator("[role=gridcell]")).toHaveCount(39);
+  });
+});
+
 test.describe("memory", () => {
   test("flips cards; a matched pair stays open", async ({ page }) => {
     await page.goto("/en/play/memory");

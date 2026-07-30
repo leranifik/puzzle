@@ -91,10 +91,10 @@ test.describe("landing page", () => {
     expect(session.saves).toEqual([]);
   });
 
-  test("games hub lists all four games", async ({ page }) => {
+  test("games hub lists all five games", async ({ page }) => {
     await page.goto("/ru/games");
     await expect(page.getByRole("heading", { name: "Все игры" })).toBeVisible();
-    for (const name of ["Пятнашки", "Судоку", "2048", "Мемори"]) {
+    for (const name of ["Пятнашки", "Судоку", "2048", "Мемори", "Numsolis"]) {
       await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
     }
   });

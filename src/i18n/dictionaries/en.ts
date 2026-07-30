@@ -12,7 +12,7 @@ export const en = {
     logout: "Sign out",
   },
   hero: {
-    eyebrow: "PUZZLE ARCADE · 004 GAMES",
+    eyebrow: "PUZZLE ARCADE · 005 GAMES",
     titleA: "Solve anywhere.",
     titleB: "Continue everywhere.",
     lead: "A quiet collection of classic puzzles. Your progress is saved to the cloud — start a game on your desktop and finish it on the phone in your pocket.",
@@ -42,6 +42,10 @@ export const en = {
     memory: {
       name: "Memory",
       tagline: "Flip the cards, find every pair.",
+    },
+    numsolis: {
+      name: "Numsolis",
+      tagline: "Merge matching powers of two in a solitaire tableau.",
     },
     soon: {
       name: "More soon",
@@ -174,6 +178,20 @@ export const en = {
     winSudoku: "The grid is complete and correct.",
     win2048: "You reached the 2048 tile!",
     winMemory: "Every pair found.",
+    winNumsolis: "Every stack is clear.",
+    cards: "cards",
+    numsolisRulesTitle: "How to play",
+    numsolisRuleMerge: "Match the same number and color — they merge automatically.",
+    numsolisRuleHigher: "An exposed card can move onto any higher card, regardless of color.",
+    numsolisRuleLimit: "No stack may cross the nine-card line. Matching 1024s leave the board.",
+    numsolisHint: "Drag a free card, or tap it and then tap its destination.",
+    numsolisLimit: "9 card limit",
+    numsolisColors: {
+      amber: "amber",
+      ivory: "ivory",
+      silver: "silver",
+      ruby: "ruby",
+    },
     gameOver: "No more moves",
     gameOverText: "The board is full. Try again?",
     keepGoing: "Keep going",

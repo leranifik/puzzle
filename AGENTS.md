@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # PuzzleHub — AI Agent Instructions
 
-PuzzleHub is a production puzzle-game mini-app (fifteen, sudoku, 2048, memory)
+PuzzleHub is a production puzzle-game mini-app (fifteen, sudoku, 2048, memory, Numsolis)
 with cloud saves, cross-device sync, Telegram Mini Apps integration and a
 self-hosted analytics dashboard. Real users depend on it — do not break
 saves, auth, or the public API contract.
