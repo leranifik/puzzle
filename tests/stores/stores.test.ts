@@ -198,8 +198,8 @@ describe("numsolis store", () => {
   const setup = (): NumsolisState => ({
     columns: [
       [
-        { id: 1, value: 128, color: "amber" },
-        { id: 2, value: 64, color: "ivory" },
+        { id: 1, value: 128, color: "ivory" },
+        { id: 2, value: 64, color: "umber" },
       ],
       [{ id: 3, value: 256, color: "slate" }],
       [], [], [], [],
