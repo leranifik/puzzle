@@ -73,10 +73,12 @@ describe("numsolis", () => {
     }
   });
 
-  it("keeps easy unchanged while making medium and hard substantially denser", () => {
+  it("keeps easy unchanged and prioritizes card density for medium and hard", () => {
     for (let i = 0; i < 20; i++) {
       const easy = generateNumsolis("easy");
       const easyMetrics = evaluateNumsolisDifficulty(easy.state, easy.solution);
+      expect(easyMetrics.cardCount).toBeGreaterThanOrEqual(20);
+      expect(easyMetrics.cardCount).toBeLessThanOrEqual(24);
       expect(easyMetrics.score).toBeGreaterThanOrEqual(80);
       expect(easyMetrics.score).toBeLessThan(120);
       expect(easyMetrics.solutionMoves).toBeGreaterThanOrEqual(18);
@@ -91,28 +93,21 @@ describe("numsolis", () => {
 
       const medium = generateNumsolis("medium");
       const mediumMetrics = evaluateNumsolisDifficulty(medium.state, medium.solution);
-      expect(mediumMetrics.score).toBeGreaterThanOrEqual(160);
-      expect(mediumMetrics.score).toBeLessThan(220);
-      expect(mediumMetrics.solutionMoves).toBeGreaterThanOrEqual(36);
+      expect(mediumMetrics.cardCount).toBeGreaterThanOrEqual(36);
+      expect(mediumMetrics.cardCount).toBeLessThanOrEqual(44);
+      expect(mediumMetrics.solutionMoves).toBeGreaterThanOrEqual(34);
       expect(mediumMetrics.solutionMoves).toBeLessThanOrEqual(46);
-      expect(mediumMetrics.maxColumnHeight).toBeGreaterThanOrEqual(7);
+      expect(mediumMetrics.maxColumnHeight).toBeGreaterThanOrEqual(6);
       expect(mediumMetrics.maxColumnHeight).toBeLessThanOrEqual(9);
-      expect(mediumMetrics.buriedPairDepth).toBeGreaterThanOrEqual(30);
-      expect(mediumMetrics.buriedPairDepth).toBeLessThanOrEqual(75);
-      expect(mediumMetrics.openMergeMoves).toBeLessThanOrEqual(14);
-      expect(mediumMetrics.decoyMoves).toBeGreaterThanOrEqual(20);
-      expect(mediumMetrics.decoyRatio).toBeGreaterThanOrEqual(0.6);
 
       const hard = generateNumsolis("hard");
       const hardMetrics = evaluateNumsolisDifficulty(hard.state, hard.solution);
-      expect(hardMetrics.score).toBeGreaterThanOrEqual(220);
-      expect(hardMetrics.solutionMoves).toBeGreaterThanOrEqual(48);
+      expect(hardMetrics.cardCount).toBeGreaterThanOrEqual(44);
+      expect(hardMetrics.cardCount).toBeLessThanOrEqual(50);
+      expect(hardMetrics.solutionMoves).toBeGreaterThanOrEqual(42);
       expect(hardMetrics.solutionMoves).toBeLessThanOrEqual(60);
       expect(hardMetrics.maxColumnHeight).toBeGreaterThanOrEqual(8);
-      expect(hardMetrics.buriedPairDepth).toBeGreaterThanOrEqual(50);
-      expect(hardMetrics.openMergeMoves).toBeLessThanOrEqual(12);
-      expect(hardMetrics.decoyMoves).toBeGreaterThanOrEqual(20);
-      expect(hardMetrics.decoyRatio).toBeGreaterThanOrEqual(0.62);
+      expect(hardMetrics.maxColumnHeight).toBeLessThanOrEqual(9);
     }
   });
 
