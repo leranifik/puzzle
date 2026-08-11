@@ -35,7 +35,6 @@ import {
 } from "@/components/ui/select";
 
 const cardClass: Record<NumsolisColor, string> = {
-  amber: "bg-primary text-primary-foreground",
   ivory: "bg-secondary text-secondary-foreground",
   slate: "bg-muted text-gold-soft",
   umber: "bg-surface text-gold-soft",
@@ -43,6 +42,7 @@ const cardClass: Record<NumsolisColor, string> = {
 
 const CARD_STEP = 46;
 const DRAG_THRESHOLD = 7;
+const MERGE_PULSE_MS = 320;
 
 type DragState = {
   from: number;
@@ -72,7 +72,9 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   const { queueSave, clearSave, status, syncedAt, markSynced } = useAutosave("numsolis");
   const [dialogDismissed, setDialogDismissed] = useState(false);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [mergePulseIds, setMergePulseIds] = useState<number[]>([]);
   const resultPosted = useRef(false);
+  const mergeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const saveQuery = useQuery({
@@ -152,8 +154,13 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     if (state && !askContinue) boardRef.current?.focus({ preventScroll: true });
   }, [state, askContinue]);
 
+  useEffect(() => () => {
+    if (mergeTimer.current) clearTimeout(mergeTimer.current);
+  }, []);
+
   const startNew = (difficulty: NumsolisDifficulty = state?.difficulty ?? "medium") => {
     resultPosted.current = false;
+    setMergePulseIds([]);
     clearSave();
     newGame(difficulty);
     setDialogDismissed(true);
@@ -166,9 +173,28 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     setDialogDismissed(true);
   };
 
+  const showMergePulse = (ids: number[]) => {
+    if (ids.length === 0) return;
+    setMergePulseIds(ids);
+    if (mergeTimer.current) clearTimeout(mergeTimer.current);
+    mergeTimer.current = setTimeout(() => setMergePulseIds([]), MERGE_PULSE_MS);
+  };
+
   const commitMove = (from: number, to: number, start: number) => {
     if (!state || !canMoveNumsolis(state, from, to, start)) return false;
+
+    const beforeValues = new Map(state.columns.flat().map((card) => [card.id, card.value]));
     if (!move(from, to, start)) return false;
+
+    const after = useNumsolisStore.getState().state;
+    if (after) {
+      const grownIds = after.columns
+        .flat()
+        .filter((card) => (beforeValues.get(card.id) ?? card.value) < card.value)
+        .map((card) => card.id);
+      showMergePulse(grownIds);
+    }
+
     haptics.tap();
     return true;
   };
@@ -260,6 +286,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
 
   const handleUndo = () => {
     resultPosted.current = false;
+    setMergePulseIds([]);
     if (undo()) haptics.tap();
   };
 
@@ -339,32 +366,50 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                     role="gridcell"
                     className="relative min-h-[31rem] min-w-0"
                   >
-                    {column.map((card, cardIndex) => {
-                      const isSelected = selectedFrom !== null && selectedFrom !== undefined && cardIndex >= selectedFrom;
-                      const isDragged = drag?.from === columnIndex && cardIndex >= drag.start;
-                      const z = isDragged ? 100 + cardIndex : cardIndex + 1;
-                      return (
-                        <motion.button
-                          key={card.id}
-                          layout="position"
-                          type="button"
-                          onPointerDown={(event) => onPointerDown(event, columnIndex, cardIndex)}
-                          aria-pressed={isSelected}
-                          aria-label={`${card.value} · ${dict.game.numsolisCard}`}
-                          className={`absolute left-0 flex h-16 w-full items-start justify-center rounded-md border border-foreground/10 pt-2 font-display text-sm font-semibold tabular-nums shadow-md select-none sm:text-lg ${cardClass[card.color]} ${isSelected ? "ring-2 ring-gold ring-inset" : ""}`}
-                          style={{
-                            top: cardIndex * CARD_STEP,
-                            zIndex: z,
-                            x: isDragged ? drag.x : 0,
-                            y: isDragged ? drag.y : 0,
-                          }}
-                          animate={{ scale: isDragged ? 1.035 : 1, rotate: isDragged ? 0.5 : 0 }}
-                          transition={{ type: "spring", stiffness: 430, damping: 32 }}
-                        >
-                          {card.value}
-                        </motion.button>
-                      );
-                    })}
+                    <AnimatePresence initial={false}>
+                      {column.map((card, cardIndex) => {
+                        const isSelected = selectedFrom !== null && selectedFrom !== undefined && cardIndex >= selectedFrom;
+                        const isDragged = drag?.from === columnIndex && cardIndex >= drag.start;
+                        const isMergePulse = mergePulseIds.includes(card.id);
+                        const z = isDragged ? 100 + cardIndex : cardIndex + 1;
+                        return (
+                          <motion.button
+                            key={card.id}
+                            layout="position"
+                            type="button"
+                            onPointerDown={(event) => onPointerDown(event, columnIndex, cardIndex)}
+                            aria-pressed={isSelected}
+                            aria-label={`${card.value} · ${dict.game.numsolisCard}`}
+                            className={`absolute left-0 flex h-16 w-full items-start justify-center rounded-md border border-foreground/10 pt-2 font-display text-sm font-semibold tabular-nums shadow-md select-none sm:text-lg ${cardClass[card.color]} ${isSelected ? "ring-2 ring-gold ring-inset" : ""}`}
+                            style={{
+                              top: cardIndex * CARD_STEP,
+                              zIndex: z,
+                              x: isDragged ? drag.x : 0,
+                              y: isDragged ? drag.y : 0,
+                            }}
+                            animate={{
+                              scale: isDragged ? 1.035 : isMergePulse ? [1, 1.14, 0.96, 1] : 1,
+                              rotate: isDragged ? 0.5 : 0,
+                              filter: isMergePulse ? ["brightness(1)", "brightness(1.3)", "brightness(1)"] : "brightness(1)",
+                            }}
+                            exit={{
+                              scale: 0.15,
+                              opacity: 0,
+                              y: 8,
+                              transition: { duration: 0.18, ease: "easeIn" },
+                            }}
+                            transition={{
+                              layout: { type: "spring", stiffness: 430, damping: 32 },
+                              scale: { duration: 0.3 },
+                              filter: { duration: 0.3 },
+                              rotate: { type: "spring", stiffness: 430, damping: 32 },
+                            }}
+                          >
+                            {card.value}
+                          </motion.button>
+                        );
+                      })}
+                    </AnimatePresence>
 
                     {column.length === 0 && (
                       <button
