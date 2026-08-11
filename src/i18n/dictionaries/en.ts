@@ -12,7 +12,7 @@ export const en = {
     logout: "Sign out",
   },
   hero: {
-    eyebrow: "PUZZLE ARCADE · 004 GAMES",
+    eyebrow: "PUZZLE ARCADE · 005 GAMES",
     titleA: "Solve anywhere.",
     titleB: "Continue everywhere.",
     lead: "A quiet collection of classic puzzles. Your progress is saved to the cloud — start a game on your desktop and finish it on the phone in your pocket.",
@@ -42,6 +42,10 @@ export const en = {
     memory: {
       name: "Memory",
       tagline: "Flip the cards, find every pair.",
+    },
+    numsolis: {
+      name: "Numsolis",
+      tagline: "Solitaire with powers of two: move stacks, merge matching cards, and complete both 2048 colors.",
     },
     soon: {
       name: "More soon",
@@ -166,6 +170,7 @@ export const en = {
     time: "time",
     newGame: "New game",
     restart: "Restart",
+    undo: "Undo",
     saved: "Saved",
     saving: "Saving…",
     backHome: "All games",
@@ -174,6 +179,7 @@ export const en = {
     winSudoku: "The grid is complete and correct.",
     win2048: "You reached the 2048 tile!",
     winMemory: "Every pair found.",
+    winNumsolis: "You completed 2048 in both colors.",
     gameOver: "No more moves",
     gameOverText: "The board is full. Try again?",
     keepGoing: "Keep going",
@@ -193,6 +199,11 @@ export const en = {
     notes: "Notes",
     erase: "Erase",
     conflictHint: "This number conflicts with the highlighted cells.",
+    numsolisHint: "Drag any card with every card above it. Drop onto a higher value of either color, or an equal same-color card to merge. When a column is emptied it closes permanently. Complete 2048 in both colors.",
+    numsolisCard: "Numsolis card",
+    numsolisEmptyColumn: "Empty column",
+    numsolisClosedColumn: "Closed column",
+    numsolisStackLimit: "Stack capacity: maximum 9 cards",
   },
   footer: {
     tagline: "Small games. Long evenings.",

@@ -3,8 +3,10 @@ import { useFifteenStore } from "@/stores/fifteen-store";
 import { useSudokuStore } from "@/stores/sudoku-store";
 import { use2048Store } from "@/stores/g2048-store";
 import { useMemoryStore } from "@/stores/memory-store";
+import { useNumsolisStore } from "@/stores/numsolis-store";
 import { newSudoku } from "@/lib/games/sudoku";
 import type { FifteenState } from "@/lib/games/fifteen";
+import type { NumsolisState } from "@/lib/games/numsolis";
 
 describe("fifteen store", () => {
   beforeEach(() => useFifteenStore.getState().reset());
@@ -23,9 +25,9 @@ describe("fifteen store", () => {
       seconds: 0,
     };
     useFifteenStore.getState().init(nearSolved);
-    expect(useFifteenStore.getState().move(0)).toBe(false); // far away
-    expect(useFifteenStore.getState().move(8)).toBe(true); // slides tile 8
-    expect(useFifteenStore.getState().won).toBe(true); // that was the winning move
+    expect(useFifteenStore.getState().move(0)).toBe(false);
+    expect(useFifteenStore.getState().move(8)).toBe(true);
+    expect(useFifteenStore.getState().won).toBe(true);
   });
 
   it("blocks further moves after winning", () => {
@@ -59,7 +61,7 @@ describe("sudoku store", () => {
 
     store().select(givenIdx);
     store().input(5);
-    expect(store().state!.cells[givenIdx]).toBe(s.puzzle[givenIdx]); // unchanged
+    expect(store().state!.cells[givenIdx]).toBe(s.puzzle[givenIdx]);
 
     store().select(emptyIdx);
     store().input(s.solution[emptyIdx]);
@@ -86,7 +88,7 @@ describe("sudoku store", () => {
     store().input(3);
     expect(store().state!.cells[emptyIdx]).toBe(0);
     expect(store().state!.notes[emptyIdx]).toEqual([3]);
-    store().input(3); // toggle off
+    store().input(3);
     expect(store().state!.notes[emptyIdx]).toEqual([]);
   });
 
@@ -171,22 +173,11 @@ describe("memory store", () => {
     expect(store().flip(4)).toBe("miss");
     store().hide();
     expect(store().state!.flipped).toEqual([]);
-    expect(store().flip(1)).toBe("flip"); // playable again after hide
+    expect(store().flip(1)).toBe("flip");
   });
 
   it("winning is detected when the last pair matches", () => {
     const store = useMemoryStore.getState;
-    store().init({
-      size: 12,
-      deck: [0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5],
-      matched: [true, true, true, true, true, true, true, true, true, true, false, false].map((_, i) => i < 10),
-      flipped: [],
-      moves: 5,
-      seconds: 60,
-    });
-    // last pair is deck[10]=4? — deck[10]=4 pairs with deck[8]=4 which is matched...
-    // Use indices 10 and 11 (values 4 and 5)? They don't match each other.
-    // Instead mark all except the true pair (9, 11) = values 5,5.
     store().init({
       size: 12,
       deck: [0, 1, 0, 1, 2, 3, 2, 3, 4, 5, 4, 5],
@@ -198,5 +189,58 @@ describe("memory store", () => {
     expect(store().flip(9)).toBe("flip");
     expect(store().flip(11)).toBe("match");
     expect(store().won).toBe(true);
+  });
+});
+
+describe("numsolis store", () => {
+  beforeEach(() => useNumsolisStore.getState().reset());
+
+  const setup = (): NumsolisState => ({
+    columns: [
+      [
+        { id: 1, value: 128, color: "ivory" },
+        { id: 2, value: 64, color: "slate" },
+      ],
+      [{ id: 3, value: 256, color: "slate" }],
+      [], [], [], [],
+    ],
+    closedColumns: [false, false, false, false, false, false],
+    moves: 0,
+    seconds: 9,
+    nextId: 4,
+    difficulty: "medium",
+  });
+
+  it("moves a suffix, closes an emptied source, and records it for undo", () => {
+    const store = useNumsolisStore.getState;
+    store().init(setup());
+    expect(store().move(0, 1, 0)).toBe(true);
+    expect(store().state!.columns[0]).toEqual([]);
+    expect(store().state!.closedColumns[0]).toBe(true);
+    expect(store().state!.columns[1].map((card) => card.value)).toEqual([256, 128, 64]);
+    expect(store().revision).toBe(1);
+    expect(store().history).toHaveLength(1);
+  });
+
+  it("undo restores the board, open-column state, and move count without rewinding the timer", () => {
+    const store = useNumsolisStore.getState;
+    store().init(setup());
+    expect(store().move(0, 1, 0)).toBe(true);
+    store().tick();
+    expect(store().state!.seconds).toBe(10);
+    expect(store().undo()).toBe(true);
+    expect(store().state!.columns[0].map((card) => card.value)).toEqual([128, 64]);
+    expect(store().state!.closedColumns[0]).toBe(false);
+    expect(store().state!.moves).toBe(0);
+    expect(store().state!.seconds).toBe(10);
+    expect(store().revision).toBe(2);
+  });
+
+  it("newGame preserves the chosen difficulty and deals no 2048", () => {
+    const store = useNumsolisStore.getState;
+    store().newGame("hard");
+    expect(store().state!.difficulty).toBe("hard");
+    expect(store().state!.columns.flat().some((card) => card.value === 2048)).toBe(false);
+    expect(store().state!.closedColumns).toEqual([false, false, false, false, false, false]);
   });
 });
