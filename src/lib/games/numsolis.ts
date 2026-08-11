@@ -59,6 +59,11 @@ type NumsolisDifficultyProfile = {
   minDecoyRatio: number;
 };
 
+type NumsolisGenerated = {
+  state: NumsolisState;
+  solution: NumsolisMove[];
+};
+
 const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile> = {
   easy: {
     extraSplits: [14, 18],
@@ -330,6 +335,12 @@ function inRange(value: number, [min, max]: readonly [number, number]): boolean 
   return value >= min && value <= max;
 }
 
+function rangeDistance(value: number, [min, max]: readonly [number, number]): number {
+  if (value < min) return min - value;
+  if (value > max) return value - max;
+  return 0;
+}
+
 function matchesDifficultyProfile(
   difficulty: NumsolisDifficulty,
   metrics: NumsolisDifficultyMetrics,
@@ -342,6 +353,21 @@ function matchesDifficultyProfile(
     inRange(metrics.openMergeMoves, profile.openMergeMoves) &&
     metrics.decoyMoves >= profile.minDecoyMoves &&
     metrics.decoyRatio >= profile.minDecoyRatio
+  );
+}
+
+function difficultyPenalty(
+  difficulty: NumsolisDifficulty,
+  metrics: NumsolisDifficultyMetrics,
+): number {
+  const profile = DIFFICULTY_PROFILES[difficulty];
+  return (
+    rangeDistance(metrics.score, profile.score) +
+    rangeDistance(metrics.maxColumnHeight, profile.maxColumnHeight) * 8 +
+    rangeDistance(metrics.buriedPairDepth, profile.buriedPairDepth) * 2 +
+    rangeDistance(metrics.openMergeMoves, profile.openMergeMoves) * 3 +
+    Math.max(0, profile.minDecoyMoves - metrics.decoyMoves) * 4 +
+    Math.max(0, profile.minDecoyRatio - metrics.decoyRatio) * 100
   );
 }
 
@@ -358,7 +384,7 @@ function replaySolution(state: NumsolisState, solution: readonly NumsolisMove[])
 function buildGenerated(
   difficulty: NumsolisDifficulty,
   extraSplits: number,
-): { state: NumsolisState; solution: NumsolisMove[] } | null {
+): NumsolisGenerated | null {
   const columns: NumsolisCard[][] = Array.from({ length: NUMSOLIS_COLUMNS }, () => []);
   let nextId = 1;
   NUMSOLIS_COLORS.forEach((color, index) => {
@@ -429,9 +455,9 @@ function buildGenerated(
  * without sacrificing the solvability guarantee.
  */
 function scrambleGenerated(
-  generated: { state: NumsolisState; solution: NumsolisMove[] },
+  generated: NumsolisGenerated,
   scrambleMoves: number,
-): { state: NumsolisState; solution: NumsolisMove[] } | null {
+): NumsolisGenerated | null {
   if (scrambleMoves === 0) return generated;
 
   const state: NumsolisState = {
@@ -476,27 +502,76 @@ function scrambleGenerated(
   return { state, solution };
 }
 
+function preferCandidate(
+  difficulty: NumsolisDifficulty,
+  current: { generated: NumsolisGenerated; metrics: NumsolisDifficultyMetrics } | null,
+  generated: NumsolisGenerated,
+  metrics: NumsolisDifficultyMetrics,
+): { generated: NumsolisGenerated; metrics: NumsolisDifficultyMetrics } {
+  if (!current) return { generated, metrics };
+
+  if (metrics.cardCount !== current.metrics.cardCount) {
+    return metrics.cardCount > current.metrics.cardCount ? { generated, metrics } : current;
+  }
+
+  return difficultyPenalty(difficulty, metrics) < difficultyPenalty(difficulty, current.metrics)
+    ? { generated, metrics }
+    : current;
+}
+
+function recoverDenseGenerated(difficulty: NumsolisDifficulty): NumsolisGenerated | null {
+  const profile = DIFFICULTY_PROFILES[difficulty];
+  const recoveryFloor = difficulty === "hard" ? 38 : difficulty === "medium" ? 30 : profile.extraSplits[0];
+
+  for (let extraSplits = profile.extraSplits[0]; extraSplits >= recoveryFloor; extraSplits--) {
+    const attempts = difficulty === "hard" ? 800 : 300;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const generated = buildGenerated(difficulty, extraSplits);
+      if (generated) return generated;
+    }
+  }
+
+  return null;
+}
+
 /**
- * Builds puzzles backwards from one 2048 end state per color. Easy keeps the
- * simpler reverse-built layout. Medium and hard trade some scramble moves for
- * many more cards, so crowding and lack of free stack capacity become the main
- * source of difficulty while every accepted deal retains a certified solution.
+ * Builds puzzles backwards from one 2048 end state per color. Difficulty
+ * profiles are preferred rather than allowed to crash generation: every
+ * reverse-built candidate considered here already has a replay-verified path to
+ * victory. If no candidate hits the exact profile, the densest closest
+ * certified candidate is returned. A final recovery pass slightly relaxes only
+ * card density before ever giving up.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
-): { state: NumsolisState; solution: NumsolisMove[] } {
+): NumsolisGenerated {
   const profile = DIFFICULTY_PROFILES[difficulty];
-  const maxAttempts = difficulty === "hard" ? 10000 : difficulty === "medium" ? 3000 : 1000;
+  const maxAttempts = difficulty === "hard" ? 4000 : difficulty === "medium" ? 2000 : 1000;
+  let best: { generated: NumsolisGenerated; metrics: NumsolisDifficultyMetrics } | null = null;
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const extraSplits = randomInteger(profile.extraSplits);
     const built = buildGenerated(difficulty, extraSplits);
     if (!built) continue;
+
+    const builtMetrics = evaluateNumsolisDifficulty(built.state, built.solution);
+    best = preferCandidate(difficulty, best, built, builtMetrics);
+    if (matchesDifficultyProfile(difficulty, builtMetrics)) return built;
+
     const scrambleMoves = randomInteger(profile.scrambleMoves);
-    const generated = scrambleGenerated(built, scrambleMoves);
-    if (!generated) continue;
-    const metrics = evaluateNumsolisDifficulty(generated.state, generated.solution);
-    if (matchesDifficultyProfile(difficulty, metrics)) return generated;
+    const scrambled = scrambleGenerated(built, scrambleMoves);
+    if (!scrambled) continue;
+
+    const scrambledMetrics = evaluateNumsolisDifficulty(scrambled.state, scrambled.solution);
+    best = preferCandidate(difficulty, best, scrambled, scrambledMetrics);
+    if (matchesDifficultyProfile(difficulty, scrambledMetrics)) return scrambled;
   }
+
+  if (best) return best.generated;
+
+  const recovered = recoverDenseGenerated(difficulty);
+  if (recovered) return recovered;
+
   throw new Error(`Unable to generate a solvable ${difficulty} Numsolis board`);
 }
 
