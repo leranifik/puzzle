@@ -61,6 +61,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     selectedColumn,
     selectedStart,
     history,
+    revision,
     select,
     move,
     undo,
@@ -126,12 +127,12 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   }, [state, won, tick]);
 
   useEffect(() => {
+    if (revision === 0) return;
     const current = useNumsolisStore.getState().state;
     if (!current || useNumsolisStore.getState().won) return;
-    if (current.moves === 0 && history.length === 0) return;
     queueSave(serializeNumsolis(current), numsolisProgress(current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.moves, history.length]);
+  }, [revision]);
 
   useEffect(() => {
     if (!won || !state || resultPosted.current) return;
@@ -292,7 +293,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
           variant="outline"
           size="sm"
           onClick={handleUndo}
-          disabled={history.length === 0}
+          disabled={history.length === 0 || won}
           className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft"
           aria-label={dict.game.undo}
         >
