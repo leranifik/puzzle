@@ -71,8 +71,8 @@ const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile>
     minDecoyRatio: 0.5,
   },
   medium: {
-    extraSplits: [24, 30],
-    scrambleMoves: [8, 12],
+    extraSplits: [32, 38],
+    scrambleMoves: [0, 4],
     score: [160, 219],
     maxColumnHeight: [7, NUMSOLIS_STACK_LIMIT],
     buriedPairDepth: [30, 75],
@@ -81,8 +81,8 @@ const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile>
     minDecoyRatio: 0.6,
   },
   hard: {
-    extraSplits: [30, 36],
-    scrambleMoves: [14, 20],
+    extraSplits: [40, 44],
+    scrambleMoves: [4, 12],
     score: [220, Number.POSITIVE_INFINITY],
     maxColumnHeight: [8, NUMSOLIS_STACK_LIMIT],
     buriedPairDepth: [50, Number.POSITIVE_INFINITY],
@@ -478,15 +478,16 @@ function scrambleGenerated(
 
 /**
  * Builds puzzles backwards from one 2048 end state per color. Easy keeps the
- * simpler reverse-built layout. Medium and hard add reversible scramble moves
- * before profile scoring so their certified solutions begin with non-merge
- * rearrangements instead of reading like an obvious merge chain.
+ * simpler reverse-built layout. Medium and hard trade some scramble moves for
+ * many more cards, so crowding and lack of free stack capacity become the main
+ * source of difficulty while every accepted deal retains a certified solution.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
 ): { state: NumsolisState; solution: NumsolisMove[] } {
   const profile = DIFFICULTY_PROFILES[difficulty];
-  for (let attempt = 0; attempt < 1000; attempt++) {
+  const maxAttempts = difficulty === "hard" ? 10000 : difficulty === "medium" ? 3000 : 1000;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const extraSplits = randomInteger(profile.extraSplits);
     const built = buildGenerated(difficulty, extraSplits);
     if (!built) continue;
