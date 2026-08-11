@@ -35,10 +35,57 @@ export type NumsolisMovePreview = {
   stages: NumsolisAnimationStage[];
 };
 
-const EXTRA_SPLITS: Record<NumsolisDifficulty, number> = {
-  easy: 10,
-  medium: 20,
-  hard: 30,
+export type NumsolisDifficultyMetrics = {
+  cardCount: number;
+  solutionMoves: number;
+  maxColumnHeight: number;
+  minColumnHeight: number;
+  legalMoves: number;
+  openMergeMoves: number;
+  decoyMoves: number;
+  decoyRatio: number;
+  buriedPairDepth: number;
+  score: number;
+};
+
+type NumsolisDifficultyProfile = {
+  extraSplits: readonly [number, number];
+  score: readonly [number, number];
+  maxColumnHeight: readonly [number, number];
+  buriedPairDepth: readonly [number, number];
+  minOpenMergeMoves: number;
+  minDecoyMoves: number;
+  minDecoyRatio: number;
+};
+
+const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile> = {
+  easy: {
+    extraSplits: [8, 12],
+    score: [0, 79],
+    maxColumnHeight: [1, 5],
+    buriedPairDepth: [0, 15],
+    minOpenMergeMoves: 6,
+    minDecoyMoves: 0,
+    minDecoyRatio: 0,
+  },
+  medium: {
+    extraSplits: [16, 22],
+    score: [80, 139],
+    maxColumnHeight: [5, 8],
+    buriedPairDepth: [8, 40],
+    minOpenMergeMoves: 4,
+    minDecoyMoves: 0,
+    minDecoyRatio: 0,
+  },
+  hard: {
+    extraSplits: [24, 30],
+    score: [140, Number.POSITIVE_INFINITY],
+    maxColumnHeight: [7, NUMSOLIS_STACK_LIMIT],
+    buriedPairDepth: [25, Number.POSITIVE_INFINITY],
+    minOpenMergeMoves: 0,
+    minDecoyMoves: 12,
+    minDecoyRatio: 0.45,
+  },
 };
 
 const cloneColumns = (columns: NumsolisCard[][]) =>
@@ -182,6 +229,10 @@ function randomChoice<T>(items: T[]): T | undefined {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+function randomInteger([min, max]: readonly [number, number]): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
 function splitTop(
   columns: NumsolisCard[][],
   from: number,
@@ -196,7 +247,104 @@ function splitTop(
   return { nextId: nextId + 1, inverse: { from: to, to: from, start: columns[to].length - 1 } };
 }
 
-function buildGenerated(difficulty: NumsolisDifficulty): { state: NumsolisState; solution: NumsolisMove[] } | null {
+function countBuriedPairDepth(columns: NumsolisCard[][]): number {
+  const groups = new Map<string, number[]>();
+  for (const column of columns) {
+    for (let index = 0; index < column.length; index++) {
+      const card = column[index];
+      const key = `${card.color}:${card.value}`;
+      const depths = groups.get(key) ?? [];
+      depths.push(column.length - 1 - index);
+      groups.set(key, depths);
+    }
+  }
+
+  let total = 0;
+  for (const depths of groups.values()) {
+    if (depths.length < 2) continue;
+    depths.sort((a, b) => a - b);
+    total += depths[0] + depths[1];
+  }
+  return total;
+}
+
+/**
+ * Human-oriented difficulty estimate for a generated deal. It combines the
+ * known solution length with crowding, pair burial and legal non-merge choices.
+ * It is intentionally not a shortest-path solver; generation still keeps a
+ * certified reverse-built solution and uses this score only to shape the deal.
+ */
+export function evaluateNumsolisDifficulty(
+  state: NumsolisState,
+  solution: readonly NumsolisMove[],
+): NumsolisDifficultyMetrics {
+  const heights = state.columns.map((column) => column.length);
+  let legalMoves = 0;
+  let openMergeMoves = 0;
+
+  for (let from = 0; from < NUMSOLIS_COLUMNS; from++) {
+    const source = state.columns[from];
+    for (let start = 0; start < source.length; start++) {
+      const bottomMoving = source[start];
+      for (let to = 0; to < NUMSOLIS_COLUMNS; to++) {
+        if (!canMoveNumsolis(state, from, to, start)) continue;
+        legalMoves += 1;
+        if (sameMergePair(state.columns[to].at(-1), bottomMoving)) openMergeMoves += 1;
+      }
+    }
+  }
+
+  const buriedPairDepth = countBuriedPairDepth(state.columns);
+  const decoyMoves = Math.max(0, legalMoves - openMergeMoves);
+  const decoyRatio = legalMoves === 0 ? 0 : decoyMoves / legalMoves;
+  const maxColumnHeight = Math.max(0, ...heights);
+  const minColumnHeight = Math.min(...heights);
+  const heightSpread = maxColumnHeight - minColumnHeight;
+  const rawScore =
+    solution.length * 2 +
+    buriedPairDepth * 1.2 +
+    maxColumnHeight * 4 +
+    heightSpread * 1.5 +
+    decoyMoves * 0.6 -
+    openMergeMoves * 0.8;
+
+  return {
+    cardCount: state.columns.flat().length,
+    solutionMoves: solution.length,
+    maxColumnHeight,
+    minColumnHeight,
+    legalMoves,
+    openMergeMoves,
+    decoyMoves,
+    decoyRatio,
+    buriedPairDepth,
+    score: Math.max(0, Math.round(rawScore)),
+  };
+}
+
+function inRange(value: number, [min, max]: readonly [number, number]): boolean {
+  return value >= min && value <= max;
+}
+
+function matchesDifficultyProfile(
+  difficulty: NumsolisDifficulty,
+  metrics: NumsolisDifficultyMetrics,
+): boolean {
+  const profile = DIFFICULTY_PROFILES[difficulty];
+  return (
+    inRange(metrics.score, profile.score) &&
+    inRange(metrics.maxColumnHeight, profile.maxColumnHeight) &&
+    inRange(metrics.buriedPairDepth, profile.buriedPairDepth) &&
+    metrics.openMergeMoves >= profile.minOpenMergeMoves &&
+    metrics.decoyMoves >= profile.minDecoyMoves &&
+    metrics.decoyRatio >= profile.minDecoyRatio
+  );
+}
+
+function buildGenerated(
+  difficulty: NumsolisDifficulty,
+  extraSplits: number,
+): { state: NumsolisState; solution: NumsolisMove[] } | null {
   const columns: NumsolisCard[][] = Array.from({ length: NUMSOLIS_COLUMNS }, () => []);
   let nextId = 1;
   NUMSOLIS_COLORS.forEach((color, index) => {
@@ -219,7 +367,7 @@ function buildGenerated(difficulty: NumsolisDifficulty): { state: NumsolisState;
     solution.unshift(result.inverse);
   }
 
-  for (let step = 0; step < EXTRA_SPLITS[difficulty]; step++) {
+  for (let step = 0; step < extraSplits; step++) {
     const options: Array<{ from: number; to: number }> = [];
     for (let from = 0; from < NUMSOLIS_COLUMNS; from++) {
       const source = columns[from];
@@ -271,17 +419,23 @@ function buildGenerated(difficulty: NumsolisDifficulty): { state: NumsolisState;
 }
 
 /**
- * Builds the puzzle backwards from one 2048 end state per color, then validates
- * the recorded solution under the permanent closed-column rule.
+ * Builds puzzles backwards from one 2048 end state per color. Difficulty is
+ * shaped by a profile rather than a fixed split count: each candidate keeps a
+ * certified solution, then is accepted only when crowding, pair burial, open
+ * merges, decoy moves and the aggregate difficulty score fit the chosen level.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
 ): { state: NumsolisState; solution: NumsolisMove[] } {
+  const profile = DIFFICULTY_PROFILES[difficulty];
   for (let attempt = 0; attempt < 1000; attempt++) {
-    const generated = buildGenerated(difficulty);
-    if (generated) return generated;
+    const extraSplits = randomInteger(profile.extraSplits);
+    const generated = buildGenerated(difficulty, extraSplits);
+    if (!generated) continue;
+    const metrics = evaluateNumsolisDifficulty(generated.state, generated.solution);
+    if (matchesDifficultyProfile(difficulty, metrics)) return generated;
   }
-  throw new Error("Unable to generate a solvable Numsolis board");
+  throw new Error(`Unable to generate a solvable ${difficulty} Numsolis board`);
 }
 
 export function newNumsolis(difficulty: NumsolisDifficulty = "medium"): NumsolisState {
