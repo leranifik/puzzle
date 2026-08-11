@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import {
+  type NumsolisDifficulty,
   type NumsolisState,
   isNumsolisWon,
   moveNumsolis,
@@ -13,29 +14,59 @@ type NumsolisStore = {
   state: NumsolisState | null;
   won: boolean;
   selectedColumn: number | null;
+  selectedStart: number | null;
+  history: NumsolisState[];
   init: (state: NumsolisState) => void;
-  newGame: () => void;
-  select: (column: number | null) => void;
-  move: (from: number, to: number) => boolean;
+  newGame: (difficulty?: NumsolisDifficulty) => void;
+  select: (column: number | null, start?: number | null) => void;
+  move: (from: number, to: number, start?: number) => boolean;
+  undo: () => boolean;
   tick: () => void;
   reset: () => void;
 };
+
+const snapshot = (state: NumsolisState): NumsolisState => ({
+  ...state,
+  columns: state.columns.map((column) => column.map((card) => ({ ...card }))),
+});
 
 export const useNumsolisStore = create<NumsolisStore>((set, get) => ({
   state: null,
   won: false,
   selectedColumn: null,
+  selectedStart: null,
+  history: [],
 
-  init: (state) => set({ state, won: isNumsolisWon(state), selectedColumn: null }),
-  newGame: () => set({ state: newNumsolis(), won: false, selectedColumn: null }),
-  select: (column) => set({ selectedColumn: column }),
+  init: (state) => set({ state, won: isNumsolisWon(state), selectedColumn: null, selectedStart: null, history: [] }),
+  newGame: (difficulty = "medium") => set({ state: newNumsolis(difficulty), won: false, selectedColumn: null, selectedStart: null, history: [] }),
+  select: (column, start = null) => set({ selectedColumn: column, selectedStart: column === null ? null : start }),
 
-  move: (from, to) => {
-    const { state, won } = get();
+  move: (from, to, start) => {
+    const { state, won, history } = get();
     if (!state || won) return false;
-    const next = moveNumsolis(state, from, to);
+    const next = moveNumsolis(state, from, to, start);
     if (!next) return false;
-    set({ state: next, won: isNumsolisWon(next), selectedColumn: null });
+    set({
+      state: next,
+      won: isNumsolisWon(next),
+      selectedColumn: null,
+      selectedStart: null,
+      history: [...history, snapshot(state)].slice(-50),
+    });
+    return true;
+  },
+
+  undo: () => {
+    const { history } = get();
+    const previous = history.at(-1);
+    if (!previous) return false;
+    set({
+      state: previous,
+      won: isNumsolisWon(previous),
+      selectedColumn: null,
+      selectedStart: null,
+      history: history.slice(0, -1),
+    });
     return true;
   },
 
@@ -45,7 +76,7 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => ({
     set({ state: { ...state, seconds: state.seconds + 1 } });
   },
 
-  reset: () => set({ state: null, won: false, selectedColumn: null }),
+  reset: () => set({ state: null, won: false, selectedColumn: null, selectedStart: null, history: [] }),
 }));
 
 export const selectNumsolisProgress = (state: NumsolisState | null) =>
