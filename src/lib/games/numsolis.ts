@@ -97,6 +97,26 @@ const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile>
   },
 };
 
+const DETERMINISTIC_FALLBACK_SPLITS: Record<NumsolisDifficulty, readonly (readonly [number, number])[]> = {
+  easy: [
+    [3, 1], [5, 2], [5, 4], [3, 2], [0, 2], [2, 1], [3, 4],
+    [3, 2], [2, 4], [5, 3], [2, 0], [4, 1], [2, 1], [5, 2],
+  ],
+  medium: [
+    [2, 1], [2, 3], [3, 0], [0, 5], [1, 3], [5, 2], [0, 3], [0, 3],
+    [0, 5], [1, 3], [5, 0], [4, 1], [2, 1], [3, 2], [1, 0], [4, 0],
+    [3, 1], [4, 1], [1, 5], [2, 5], [5, 1], [1, 3], [3, 4], [0, 2],
+    [5, 3], [1, 3], [0, 1], [5, 1], [0, 5], [5, 4], [4, 5], [5, 2],
+  ],
+  hard: [
+    [4, 1], [5, 3], [4, 5], [3, 2], [3, 2], [0, 3], [0, 5], [2, 0],
+    [2, 3], [4, 5], [0, 5], [4, 2], [4, 0], [3, 4], [2, 3], [4, 0],
+    [5, 4], [3, 0], [5, 0], [5, 0], [3, 2], [2, 5], [3, 0], [1, 0],
+    [1, 3], [1, 4], [4, 1], [1, 2], [2, 4], [0, 4], [1, 3], [4, 3],
+    [0, 2], [1, 4], [0, 1], [1, 2], [2, 5], [1, 4], [0, 4], [3, 2],
+  ],
+};
+
 const cloneColumns = (columns: NumsolisCard[][]) =>
   columns.map((column) => column.map((card) => ({ ...card })));
 
@@ -381,10 +401,11 @@ function replaySolution(state: NumsolisState, solution: readonly NumsolisMove[])
   return isNumsolisWon(replay);
 }
 
-function buildGenerated(
-  difficulty: NumsolisDifficulty,
-  extraSplits: number,
-): NumsolisGenerated | null {
+function seedGenerated(difficulty: NumsolisDifficulty): {
+  columns: NumsolisCard[][];
+  solution: NumsolisMove[];
+  nextId: number;
+} | null {
   const columns: NumsolisCard[][] = Array.from({ length: NUMSOLIS_COLUMNS }, () => []);
   let nextId = 1;
   NUMSOLIS_COLORS.forEach((color, index) => {
@@ -392,8 +413,6 @@ function buildGenerated(
   });
 
   const solution: NumsolisMove[] = [];
-
-  // Seed all six columns while guaranteeing that the initial deal contains no 2048.
   const seedSplits: Array<[number, number]> = [
     [0, 2],
     [1, 3],
@@ -406,6 +425,39 @@ function buildGenerated(
     nextId = result.nextId;
     solution.unshift(result.inverse);
   }
+
+  void difficulty;
+  return { columns, solution, nextId };
+}
+
+function finishGenerated(
+  difficulty: NumsolisDifficulty,
+  columns: NumsolisCard[][],
+  solution: NumsolisMove[],
+  nextId: number,
+): NumsolisGenerated | null {
+  const state: NumsolisState = {
+    columns,
+    closedColumns: new Array(NUMSOLIS_COLUMNS).fill(false),
+    moves: 0,
+    seconds: 0,
+    nextId,
+    difficulty,
+  };
+  if (state.columns.some((column) => column.length === 0 || column.length > NUMSOLIS_STACK_LIMIT)) return null;
+  if (state.columns.flat().some((card) => card.value > NUMSOLIS_MAX_DEALT_VALUE)) return null;
+  if (!replaySolution(state, solution)) return null;
+  return { state, solution };
+}
+
+function buildGenerated(
+  difficulty: NumsolisDifficulty,
+  extraSplits: number,
+): NumsolisGenerated | null {
+  const seeded = seedGenerated(difficulty);
+  if (!seeded) return null;
+  const { columns, solution } = seeded;
+  let { nextId } = seeded;
 
   for (let step = 0; step < extraSplits; step++) {
     const options: Array<{ from: number; to: number }> = [];
@@ -433,19 +485,25 @@ function buildGenerated(
     solution.unshift(result.inverse);
   }
 
-  const state: NumsolisState = {
-    columns,
-    closedColumns: new Array(NUMSOLIS_COLUMNS).fill(false),
-    moves: 0,
-    seconds: 0,
-    nextId,
-    difficulty,
-  };
-  if (state.columns.some((column) => column.length === 0 || column.length > NUMSOLIS_STACK_LIMIT)) return null;
-  if (state.columns.flat().some((card) => card.value > NUMSOLIS_MAX_DEALT_VALUE)) return null;
-  if (!replaySolution(state, solution)) return null;
+  return finishGenerated(difficulty, columns, solution, nextId);
+}
 
-  return { state, solution };
+function buildDeterministicFallback(difficulty: NumsolisDifficulty): NumsolisGenerated {
+  const seeded = seedGenerated(difficulty);
+  if (!seeded) throw new Error("Unable to seed deterministic Numsolis fallback");
+  const { columns, solution } = seeded;
+  let { nextId } = seeded;
+
+  for (const [from, to] of DETERMINISTIC_FALLBACK_SPLITS[difficulty]) {
+    const result = splitTop(columns, from, to, nextId);
+    if (!result) throw new Error("Invalid deterministic Numsolis fallback split");
+    nextId = result.nextId;
+    solution.unshift(result.inverse);
+  }
+
+  const generated = finishGenerated(difficulty, columns, solution, nextId);
+  if (!generated) throw new Error("Invalid deterministic Numsolis fallback solution");
+  return generated;
 }
 
 /**
@@ -524,7 +582,7 @@ function recoverDenseGenerated(difficulty: NumsolisDifficulty): NumsolisGenerate
   const recoveryFloor = difficulty === "hard" ? 38 : difficulty === "medium" ? 30 : profile.extraSplits[0];
 
   for (let extraSplits = profile.extraSplits[0]; extraSplits >= recoveryFloor; extraSplits--) {
-    const attempts = difficulty === "hard" ? 800 : 300;
+    const attempts = difficulty === "hard" ? 400 : 200;
     for (let attempt = 0; attempt < attempts; attempt++) {
       const generated = buildGenerated(difficulty, extraSplits);
       if (generated) return generated;
@@ -539,14 +597,14 @@ function recoverDenseGenerated(difficulty: NumsolisDifficulty): NumsolisGenerate
  * profiles are preferred rather than allowed to crash generation: every
  * reverse-built candidate considered here already has a replay-verified path to
  * victory. If no candidate hits the exact profile, the densest closest
- * certified candidate is returned. A final recovery pass slightly relaxes only
- * card density before ever giving up.
+ * certified candidate is returned. Random recovery is followed by a fixed,
+ * replay-verified dense layout so stochastic bad luck never reaches the UI.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
 ): NumsolisGenerated {
   const profile = DIFFICULTY_PROFILES[difficulty];
-  const maxAttempts = difficulty === "hard" ? 4000 : difficulty === "medium" ? 2000 : 1000;
+  const maxAttempts = difficulty === "hard" ? 2000 : difficulty === "medium" ? 1000 : 1000;
   let best: { generated: NumsolisGenerated; metrics: NumsolisDifficultyMetrics } | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -572,7 +630,7 @@ export function generateNumsolis(
   const recovered = recoverDenseGenerated(difficulty);
   if (recovered) return recovered;
 
-  throw new Error(`Unable to generate a solvable ${difficulty} Numsolis board`);
+  return buildDeterministicFallback(difficulty);
 }
 
 export function newNumsolis(difficulty: NumsolisDifficulty = "medium"): NumsolisState {
