@@ -171,31 +171,87 @@ test.describe("memory", () => {
 });
 
 test.describe("numsolis", () => {
-  test("renders one six-column board with nine-card capacity and can make a move", async ({ page }) => {
+  test("renders one six-column cascade, supports difficulty, and never deals 2048", async ({ page }) => {
     await page.goto("/en/play/numsolis");
     await dismissContinueDialog(page);
     const board = page.locator("[role=grid]");
     await expect(board).toBeVisible();
     await expect(board.locator("[role=gridcell]")).toHaveCount(6);
     await expect(board.getByText(/\/9$/)).toHaveCount(6);
+    await expect(board.getByRole("button", { name: /^2048 · Numsolis card$/ })).toHaveCount(0);
 
+    await page.getByLabel("Difficulty").click();
+    await page.getByRole("option", { name: "Hard", exact: true }).click();
+    await expect(page.getByLabel("Difficulty")).toContainText("Hard");
+    await expect(board.getByRole("button", { name: /^2048 · Numsolis card$/ })).toHaveCount(0);
+  });
+
+  test("tap move can be undone", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+    const board = page.locator("[role=grid]");
     const movesCounter = page.locator(".font-display.tabular-nums").first();
-    const before = await movesCounter.innerText();
     const cards = board.getByRole("button", { name: /Numsolis card/ });
     const count = await cards.count();
     let moved = false;
+
     for (let i = 0; i < count && !moved; i++) {
       await cards.nth(i).click();
       for (let j = 0; j < count; j++) {
         if (i === j) continue;
         await cards.nth(j).click().catch(() => {});
-        if ((await movesCounter.innerText()) !== before) {
+        if ((await movesCounter.innerText()) === "1") {
           moved = true;
           break;
         }
-        await cards.nth(i).click().catch(() => {});
       }
     }
+
     expect(moved).toBe(true);
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(movesCounter).toHaveText("0");
+  });
+
+  test("cards can be dragged between columns", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+    const board = page.locator("[role=grid]");
+    const columns = board.locator("[data-numsolis-column]");
+    const movesCounter = page.locator(".font-display.tabular-nums").first();
+
+    const pair = await page.evaluate(() => {
+      const cols = [...document.querySelectorAll<HTMLElement>("[data-numsolis-column]")];
+      const data = cols.map((col, index) => {
+        const cards = [...col.querySelectorAll<HTMLButtonElement>('button[aria-label*="Numsolis card"]')];
+        return {
+          index,
+          top: cards.at(-1) ? Number(cards.at(-1)!.textContent) : null,
+          count: cards.length,
+        };
+      });
+      for (const source of data) {
+        if (source.top === null) continue;
+        for (const target of data) {
+          if (source.index === target.index || target.top === null || target.count >= 9) continue;
+          if (target.top > source.top) return { from: source.index, to: target.index };
+        }
+      }
+      return null;
+    });
+
+    expect(pair).not.toBeNull();
+    if (!pair) return;
+    const sourceCard = columns.nth(pair.from).getByRole("button", { name: /Numsolis card/ }).last();
+    const sourceBox = await sourceCard.boundingBox();
+    const targetBox = await columns.nth(pair.to).boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    if (!sourceBox || !targetBox) return;
+
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 100, { steps: 8 });
+    await page.mouse.up();
+    await expect(movesCounter).toHaveText("1");
   });
 });
