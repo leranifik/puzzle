@@ -199,28 +199,30 @@ describe("numsolis store", () => {
     columns: [
       [
         { id: 1, value: 128, color: "ivory" },
-        { id: 2, value: 64, color: "umber" },
+        { id: 2, value: 64, color: "slate" },
       ],
       [{ id: 3, value: 256, color: "slate" }],
       [], [], [], [],
     ],
+    closedColumns: [false, false, false, false, false, false],
     moves: 0,
     seconds: 9,
     nextId: 4,
     difficulty: "medium",
   });
 
-  it("moves a suffix and records it for undo", () => {
+  it("moves a suffix, closes an emptied source, and records it for undo", () => {
     const store = useNumsolisStore.getState;
     store().init(setup());
     expect(store().move(0, 1, 0)).toBe(true);
     expect(store().state!.columns[0]).toEqual([]);
+    expect(store().state!.closedColumns[0]).toBe(true);
     expect(store().state!.columns[1].map((card) => card.value)).toEqual([256, 128, 64]);
     expect(store().revision).toBe(1);
     expect(store().history).toHaveLength(1);
   });
 
-  it("undo restores the board and move count without rewinding the timer", () => {
+  it("undo restores the board, open-column state, and move count without rewinding the timer", () => {
     const store = useNumsolisStore.getState;
     store().init(setup());
     expect(store().move(0, 1, 0)).toBe(true);
@@ -228,6 +230,7 @@ describe("numsolis store", () => {
     expect(store().state!.seconds).toBe(10);
     expect(store().undo()).toBe(true);
     expect(store().state!.columns[0].map((card) => card.value)).toEqual([128, 64]);
+    expect(store().state!.closedColumns[0]).toBe(false);
     expect(store().state!.moves).toBe(0);
     expect(store().state!.seconds).toBe(10);
     expect(store().revision).toBe(2);
@@ -238,5 +241,6 @@ describe("numsolis store", () => {
     store().newGame("hard");
     expect(store().state!.difficulty).toBe("hard");
     expect(store().state!.columns.flat().some((card) => card.value === 2048)).toBe(false);
+    expect(store().state!.closedColumns).toEqual([false, false, false, false, false, false]);
   });
 });
