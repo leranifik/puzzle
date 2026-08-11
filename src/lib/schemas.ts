@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const gameIdSchema = z.enum(["fifteen", "sudoku", "g2048", "memory"]);
+export const gameIdSchema = z.enum(["fifteen", "sudoku", "g2048", "memory", "numsolis"]);
 export type GameId = z.infer<typeof gameIdSchema>;
 
 export const saveGameSchema = z.object({
