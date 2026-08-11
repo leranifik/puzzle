@@ -73,7 +73,7 @@ describe("numsolis", () => {
     }
   });
 
-  it("shapes every difficulty into a denser puzzle with fewer obvious merges", () => {
+  it("keeps easy unchanged while making medium and hard substantially denser", () => {
     for (let i = 0; i < 20; i++) {
       const easy = generateNumsolis("easy");
       const easyMetrics = evaluateNumsolisDifficulty(easy.state, easy.solution);
@@ -91,28 +91,28 @@ describe("numsolis", () => {
 
       const medium = generateNumsolis("medium");
       const mediumMetrics = evaluateNumsolisDifficulty(medium.state, medium.solution);
-      expect(mediumMetrics.score).toBeGreaterThanOrEqual(120);
-      expect(mediumMetrics.score).toBeLessThan(170);
-      expect(mediumMetrics.solutionMoves).toBeGreaterThanOrEqual(24);
-      expect(mediumMetrics.solutionMoves).toBeLessThanOrEqual(30);
-      expect(mediumMetrics.maxColumnHeight).toBeGreaterThanOrEqual(6);
+      expect(mediumMetrics.score).toBeGreaterThanOrEqual(160);
+      expect(mediumMetrics.score).toBeLessThan(220);
+      expect(mediumMetrics.solutionMoves).toBeGreaterThanOrEqual(36);
+      expect(mediumMetrics.solutionMoves).toBeLessThanOrEqual(46);
+      expect(mediumMetrics.maxColumnHeight).toBeGreaterThanOrEqual(7);
       expect(mediumMetrics.maxColumnHeight).toBeLessThanOrEqual(9);
-      expect(mediumMetrics.buriedPairDepth).toBeGreaterThanOrEqual(25);
-      expect(mediumMetrics.buriedPairDepth).toBeLessThanOrEqual(55);
-      expect(mediumMetrics.openMergeMoves).toBeLessThanOrEqual(16);
-      expect(mediumMetrics.decoyMoves).toBeGreaterThanOrEqual(14);
-      expect(mediumMetrics.decoyRatio).toBeGreaterThanOrEqual(0.55);
+      expect(mediumMetrics.buriedPairDepth).toBeGreaterThanOrEqual(30);
+      expect(mediumMetrics.buriedPairDepth).toBeLessThanOrEqual(75);
+      expect(mediumMetrics.openMergeMoves).toBeLessThanOrEqual(14);
+      expect(mediumMetrics.decoyMoves).toBeGreaterThanOrEqual(20);
+      expect(mediumMetrics.decoyRatio).toBeGreaterThanOrEqual(0.6);
 
       const hard = generateNumsolis("hard");
       const hardMetrics = evaluateNumsolisDifficulty(hard.state, hard.solution);
-      expect(hardMetrics.score).toBeGreaterThanOrEqual(170);
-      expect(hardMetrics.solutionMoves).toBeGreaterThanOrEqual(32);
-      expect(hardMetrics.solutionMoves).toBeLessThanOrEqual(38);
+      expect(hardMetrics.score).toBeGreaterThanOrEqual(220);
+      expect(hardMetrics.solutionMoves).toBeGreaterThanOrEqual(48);
+      expect(hardMetrics.solutionMoves).toBeLessThanOrEqual(60);
       expect(hardMetrics.maxColumnHeight).toBeGreaterThanOrEqual(8);
       expect(hardMetrics.buriedPairDepth).toBeGreaterThanOrEqual(50);
-      expect(hardMetrics.openMergeMoves).toBeLessThanOrEqual(16);
-      expect(hardMetrics.decoyMoves).toBeGreaterThanOrEqual(16);
-      expect(hardMetrics.decoyRatio).toBeGreaterThanOrEqual(0.58);
+      expect(hardMetrics.openMergeMoves).toBeLessThanOrEqual(12);
+      expect(hardMetrics.decoyMoves).toBeGreaterThanOrEqual(20);
+      expect(hardMetrics.decoyRatio).toBeGreaterThanOrEqual(0.62);
     }
   });
 
