@@ -45,7 +45,7 @@ test.describe("fifteen puzzle", () => {
     const saved = waitForAutosave(page, "fifteen");
     await makeFifteenMove(page);
     await expect(page.locator(".font-display.tabular-nums").first()).toHaveText("1");
-    await saved; // debounced autosave has really landed
+    await saved;
 
     await page.reload();
     await expect(page.getByText("Continue saved game?")).toBeVisible({ timeout: 5000 });
@@ -67,8 +67,6 @@ test.describe("fifteen puzzle", () => {
     await dismissContinueDialog(page);
     await expect(page.locator("[role=gridcell]")).toHaveCount(16);
     const movesCounter = page.locator(".font-display.tabular-nums").first();
-
-    // board is auto-focused: some arrow always has a legal move on 4x4
     for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
       await page.keyboard.press(key);
     }
@@ -82,14 +80,9 @@ test.describe("sudoku", () => {
     await dismissContinueDialog(page);
     const cells = page.locator("[role=gridcell]");
     await expect(cells).toHaveCount(81, { timeout: 10_000 });
-
-    // find an empty cell: no text and not part of the givens styling
     const emptyCell = cells.filter({ hasNotText: /\d/ }).first();
     await emptyCell.click();
-
-    // type via the on-screen pad
     await page.locator("button", { hasText: /^1$/ }).last().click();
-    // either it's correct (cell shows 1 in gold) or wrong (mistakes = 1) — both count as accepted input
     const mistakes = await page.locator(".text-destructive.tabular-nums, .font-display.text-destructive").first().innerText();
     expect(["0", "1"]).toContain(mistakes.trim());
   });
@@ -99,19 +92,14 @@ test.describe("sudoku", () => {
     await dismissContinueDialog(page);
     const cells = page.locator("[role=gridcell]");
     await expect(cells).toHaveCount(81, { timeout: 10_000 });
-
-    // pin a concrete empty cell index BEFORE typing (the :has-not-text filter
-    // is live and would re-resolve to a different cell once the note appears)
     const emptyIndex = await page.evaluate(() => {
       const nodes = [...document.querySelectorAll("[role=gridcell]")];
       return nodes.findIndex((n) => !/\d/.test(n.textContent ?? ""));
     });
     expect(emptyIndex).toBeGreaterThanOrEqual(0);
     const cell = cells.nth(emptyIndex);
-
     await cell.click();
     await page.getByRole("button", { name: "Notes" }).click();
-    // clicking the Notes button moved focus — return it to the board
     await page.locator("[role=grid]").focus();
     await page.keyboard.press("5");
     await expect(cell.locator("span", { hasText: "5" }).first()).toBeVisible();
@@ -122,15 +110,11 @@ test.describe("sudoku", () => {
     await dismissContinueDialog(page);
     const cells = page.locator("[role=gridcell]");
     await expect(cells).toHaveCount(81, { timeout: 10_000 });
-
-    await cells.nth(0).click(); // select top-left
+    await cells.nth(0).click();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowDown");
-    // cell index 10 (r1c1) is now selected
     await expect(cells.nth(10)).toHaveAttribute("aria-selected", "true");
-
-    // arrows at the edge don't wrap
-    await cells.nth(8).click(); // top-right corner
+    await cells.nth(8).click();
     await page.keyboard.press("ArrowRight");
     await expect(cells.nth(8)).toHaveAttribute("aria-selected", "true");
   });
@@ -141,12 +125,10 @@ test.describe("2048", () => {
     await page.goto("/en/play/g2048");
     await dismissContinueDialog(page);
     await expect(page.locator("[role=application]")).toBeVisible();
-
     for (const key of ["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"]) {
       await page.keyboard.press(key);
       await page.waitForTimeout(120);
     }
-    // after four moves there must be at least 3 tiles on the board
     const tiles = page.locator("[role=application] > div.absolute.grid");
     expect(await tiles.count()).toBeGreaterThanOrEqual(3);
   });
@@ -155,7 +137,6 @@ test.describe("2048", () => {
     await page.goto("/en/play/g2048");
     await dismissContinueDialog(page);
     await expect(page.locator("[role=application]")).toBeVisible();
-
     const positions = () =>
       page.evaluate(() =>
         [...document.querySelectorAll("[role=application] > div.absolute.grid")].map(
@@ -176,17 +157,45 @@ test.describe("memory", () => {
     await dismissContinueDialog(page);
     const cards = page.locator("[role=gridcell]");
     await expect(cards).toHaveCount(16);
-
-    // brute-force: click cards until the pairs counter moves
     const pairsCounter = page.locator(".font-display.tabular-nums").nth(1);
     outer: for (let i = 0; i < 16; i++) {
       for (let j = i + 1; j < 16; j++) {
         await cards.nth(i).click({ force: true });
         await cards.nth(j).click({ force: true });
-        await page.waitForTimeout(1100); // miss-hide delay
+        await page.waitForTimeout(1100);
         if ((await pairsCounter.innerText()).startsWith("1")) break outer;
       }
     }
     await expect(pairsCounter).toHaveText(/^1\//);
+  });
+});
+
+test.describe("numsolis", () => {
+  test("renders one six-column board with nine-card capacity and can make a move", async ({ page }) => {
+    await page.goto("/en/play/numsolis");
+    await dismissContinueDialog(page);
+    const board = page.locator("[role=grid]");
+    await expect(board).toBeVisible();
+    await expect(board.locator("[role=gridcell]")).toHaveCount(6);
+    await expect(board.getByText(/\/9$/)).toHaveCount(6);
+
+    const movesCounter = page.locator(".font-display.tabular-nums").first();
+    const before = await movesCounter.innerText();
+    const cards = board.getByRole("button", { name: /Numsolis card/ });
+    const count = await cards.count();
+    let moved = false;
+    for (let i = 0; i < count && !moved; i++) {
+      await cards.nth(i).click();
+      for (let j = 0; j < count; j++) {
+        if (i === j) continue;
+        await cards.nth(j).click().catch(() => {});
+        if ((await movesCounter.innerText()) !== before) {
+          moved = true;
+          break;
+        }
+        await cards.nth(i).click().catch(() => {});
+      }
+    }
+    expect(moved).toBe(true);
   });
 });
