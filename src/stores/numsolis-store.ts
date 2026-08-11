@@ -29,6 +29,7 @@ type NumsolisStore = {
 const snapshot = (state: NumsolisState): NumsolisState => ({
   ...state,
   columns: state.columns.map((column) => column.map((card) => ({ ...card }))),
+  closedColumns: [...state.closedColumns],
 });
 
 export const useNumsolisStore = create<NumsolisStore>((set, get) => ({
@@ -39,7 +40,7 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => ({
   history: [],
   revision: 0,
 
-  init: (state) => set({ state, won: isNumsolisWon(state), selectedColumn: null, selectedStart: null, history: [], revision: 0 }),
+  init: (state) => set({ state: snapshot(state), won: isNumsolisWon(state), selectedColumn: null, selectedStart: null, history: [], revision: 0 }),
   newGame: (difficulty = "medium") => set({ state: newNumsolis(difficulty), won: false, selectedColumn: null, selectedStart: null, history: [], revision: 0 }),
   select: (column, start = null) => set({ selectedColumn: column, selectedStart: column === null ? null : start }),
 
