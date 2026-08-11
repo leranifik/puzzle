@@ -2,7 +2,7 @@ export const NUMSOLIS_COLUMNS = 6;
 export const NUMSOLIS_STACK_LIMIT = 9;
 export const NUMSOLIS_TARGET = 2048;
 export const NUMSOLIS_MAX_DEALT_VALUE = 1024;
-export const NUMSOLIS_COLORS = ["amber", "ivory", "slate", "umber"] as const;
+export const NUMSOLIS_COLORS = ["ivory", "slate", "umber"] as const;
 export const NUMSOLIS_DIFFICULTIES = ["easy", "medium", "hard"] as const;
 
 export type NumsolisColor = (typeof NUMSOLIS_COLORS)[number];
@@ -107,13 +107,22 @@ export function moveNumsolis(
   return { ...state, columns, moves: state.moves + 1 };
 }
 
+/** The game ends only after every logical color has produced its own 2048. */
 export function isNumsolisWon(state: NumsolisState): boolean {
-  return state.columns.some((column) => column.some((card) => card.value === NUMSOLIS_TARGET));
+  const cards = state.columns.flat();
+  return NUMSOLIS_COLORS.every((color) =>
+    cards.some((card) => card.color === color && card.value === NUMSOLIS_TARGET),
+  );
 }
 
+/** Progress is averaged across colors so one finished color cannot mark the save complete. */
 export function numsolisProgress(state: NumsolisState): number {
-  const max = Math.max(0, ...state.columns.flat().map((card) => card.value));
-  return Math.min(1, max / NUMSOLIS_TARGET);
+  const cards = state.columns.flat();
+  const total = NUMSOLIS_COLORS.reduce((sum, color) => {
+    const maxForColor = Math.max(0, ...cards.filter((card) => card.color === color).map((card) => card.value));
+    return sum + Math.min(1, maxForColor / NUMSOLIS_TARGET);
+  }, 0);
+  return total / NUMSOLIS_COLORS.length;
 }
 
 function randomChoice<T>(items: T[]): T | undefined {
@@ -146,7 +155,7 @@ function buildGenerated(difficulty: NumsolisDifficulty): { state: NumsolisState;
   // Mandatory first split for every color. This guarantees that a freshly
   // dealt board never contains 2048; the largest dealt card is 1024.
   for (let from = 0; from < NUMSOLIS_COLORS.length; from++) {
-    const to = 4 + (from % 2);
+    const to = 3 + (from % 3);
     const result = splitTop(columns, from, to, nextId);
     if (!result) return null;
     nextId = result.nextId;
@@ -186,8 +195,8 @@ function buildGenerated(difficulty: NumsolisDifficulty): { state: NumsolisState;
 }
 
 /**
- * Builds the puzzle backwards from four 2048 end states. Each generated split
- * has an exact inverse legal move, so replaying `solution` always reaches 2048.
+ * Builds the puzzle backwards from one 2048 end state per color. Every split
+ * has an exact inverse legal move, so replaying `solution` solves all colors.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
