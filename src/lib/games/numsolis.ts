@@ -50,6 +50,7 @@ export type NumsolisDifficultyMetrics = {
 
 type NumsolisDifficultyProfile = {
   extraSplits: readonly [number, number];
+  scrambleMoves: readonly [number, number];
   score: readonly [number, number];
   maxColumnHeight: readonly [number, number];
   buriedPairDepth: readonly [number, number];
@@ -61,6 +62,7 @@ type NumsolisDifficultyProfile = {
 const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile> = {
   easy: {
     extraSplits: [14, 18],
+    scrambleMoves: [0, 0],
     score: [80, 119],
     maxColumnHeight: [5, 7],
     buriedPairDepth: [10, 30],
@@ -69,22 +71,24 @@ const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile>
     minDecoyRatio: 0.5,
   },
   medium: {
-    extraSplits: [20, 26],
-    score: [120, 169],
-    maxColumnHeight: [6, NUMSOLIS_STACK_LIMIT],
-    buriedPairDepth: [25, 55],
-    openMergeMoves: [0, 16],
-    minDecoyMoves: 14,
-    minDecoyRatio: 0.55,
+    extraSplits: [24, 30],
+    scrambleMoves: [8, 12],
+    score: [160, 219],
+    maxColumnHeight: [7, NUMSOLIS_STACK_LIMIT],
+    buriedPairDepth: [30, 75],
+    openMergeMoves: [0, 14],
+    minDecoyMoves: 20,
+    minDecoyRatio: 0.6,
   },
   hard: {
-    extraSplits: [28, 34],
-    score: [170, Number.POSITIVE_INFINITY],
+    extraSplits: [30, 36],
+    scrambleMoves: [14, 20],
+    score: [220, Number.POSITIVE_INFINITY],
     maxColumnHeight: [8, NUMSOLIS_STACK_LIMIT],
     buriedPairDepth: [50, Number.POSITIVE_INFINITY],
-    openMergeMoves: [0, 16],
-    minDecoyMoves: 16,
-    minDecoyRatio: 0.58,
+    openMergeMoves: [0, 12],
+    minDecoyMoves: 20,
+    minDecoyRatio: 0.62,
   },
 };
 
@@ -341,6 +345,16 @@ function matchesDifficultyProfile(
   );
 }
 
+function replaySolution(state: NumsolisState, solution: readonly NumsolisMove[]): boolean {
+  let replay = state;
+  for (const move of solution) {
+    const next = moveNumsolis(replay, move.from, move.to, move.start);
+    if (!next) return false;
+    replay = next;
+  }
+  return isNumsolisWon(replay);
+}
+
 function buildGenerated(
   difficulty: NumsolisDifficulty,
   extraSplits: number,
@@ -403,26 +417,70 @@ function buildGenerated(
   };
   if (state.columns.some((column) => column.length === 0 || column.length > NUMSOLIS_STACK_LIMIT)) return null;
   if (state.columns.flat().some((card) => card.value > NUMSOLIS_MAX_DEALT_VALUE)) return null;
-
-  // The reverse construction alone is not enough once empty columns close.
-  // Replay the exact solution with the real rules and reject any deal whose
-  // known path would try to use a closed destination.
-  let replay = state;
-  for (const move of solution) {
-    const next = moveNumsolis(replay, move.from, move.to, move.start);
-    if (!next) return null;
-    replay = next;
-  }
-  if (!isNumsolisWon(replay)) return null;
+  if (!replaySolution(state, solution)) return null;
 
   return { state, solution };
 }
 
 /**
- * Builds puzzles backwards from one 2048 end state per color. Difficulty is
- * shaped by a profile rather than a fixed split count: each candidate keeps a
- * certified solution, then is accepted only when crowding, pair burial, open
- * merges, decoy moves and the aggregate difficulty score fit the chosen level.
+ * Apply reversible non-merge moves after reverse generation. These moves keep
+ * every column open and can be undone in reverse order before following the
+ * original certified solution, so they make the initial layout less obvious
+ * without sacrificing the solvability guarantee.
+ */
+function scrambleGenerated(
+  generated: { state: NumsolisState; solution: NumsolisMove[] },
+  scrambleMoves: number,
+): { state: NumsolisState; solution: NumsolisMove[] } | null {
+  if (scrambleMoves === 0) return generated;
+
+  const state: NumsolisState = {
+    ...generated.state,
+    columns: cloneColumns(generated.state.columns),
+    closedColumns: [...generated.state.closedColumns],
+  };
+  const solution = generated.solution.map((move) => ({ ...move }));
+
+  for (let step = 0; step < scrambleMoves; step++) {
+    const options: Array<{ from: number; to: number; start: number }> = [];
+
+    for (let from = 0; from < NUMSOLIS_COLUMNS; from++) {
+      const source = state.columns[from];
+      for (let start = 1; start < source.length; start++) {
+        const bottomMoving = source[start];
+        const remainingTop = source[start - 1];
+        if (remainingTop.value <= bottomMoving.value) continue;
+
+        const movingLength = source.length - start;
+        for (let to = 0; to < NUMSOLIS_COLUMNS; to++) {
+          if (to === from) continue;
+          const target = state.columns[to];
+          const targetTop = target.at(-1);
+          if (!targetTop || targetTop.value <= bottomMoving.value) continue;
+          if (target.length + movingLength > NUMSOLIS_STACK_LIMIT) continue;
+          options.push({ from, to, start });
+        }
+      }
+    }
+
+    const option = randomChoice(options);
+    if (!option) return null;
+
+    const inverseStart = state.columns[option.to].length;
+    const moving = state.columns[option.from].splice(option.start);
+    state.columns[option.to].push(...moving);
+    solution.unshift({ from: option.to, to: option.from, start: inverseStart });
+  }
+
+  if (!replaySolution(state, solution)) return null;
+  return { state, solution };
+}
+
+/**
+ * Builds puzzles backwards from one 2048 end state per color. Easy keeps the
+ * simpler reverse-built layout. Medium and hard add reversible scramble moves
+ * before profile scoring so their certified solutions begin with non-merge
+ * rearrangements instead of reading like an obvious merge chain.
  */
 export function generateNumsolis(
   difficulty: NumsolisDifficulty = "medium",
@@ -430,7 +488,10 @@ export function generateNumsolis(
   const profile = DIFFICULTY_PROFILES[difficulty];
   for (let attempt = 0; attempt < 1000; attempt++) {
     const extraSplits = randomInteger(profile.extraSplits);
-    const generated = buildGenerated(difficulty, extraSplits);
+    const built = buildGenerated(difficulty, extraSplits);
+    if (!built) continue;
+    const scrambleMoves = randomInteger(profile.scrambleMoves);
+    const generated = scrambleGenerated(built, scrambleMoves);
     if (!generated) continue;
     const metrics = evaluateNumsolisDifficulty(generated.state, generated.solution);
     if (matchesDifficultyProfile(difficulty, metrics)) return generated;
