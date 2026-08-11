@@ -45,7 +45,7 @@ export const en = {
     },
     numsolis: {
       name: "Numsolis",
-      tagline: "Solitaire with powers of two: move stacks, merge matching cards, and reach 2048.",
+      tagline: "Solitaire with powers of two: move stacks, merge matching cards, and complete both 2048 colors.",
     },
     soon: {
       name: "More soon",
@@ -179,7 +179,7 @@ export const en = {
     winSudoku: "The grid is complete and correct.",
     win2048: "You reached the 2048 tile!",
     winMemory: "Every pair found.",
-    winNumsolis: "You created a 2048 card.",
+    winNumsolis: "You completed 2048 in both colors.",
     gameOver: "No more moves",
     gameOverText: "The board is full. Try again?",
     keepGoing: "Keep going",
@@ -199,9 +199,10 @@ export const en = {
     notes: "Notes",
     erase: "Erase",
     conflictHint: "This number conflicts with the highlighted cells.",
-    numsolisHint: "Drag any card to move it and every card above it. Drop onto an empty column, a higher value of any color, or an equal same-color card to merge. Reach 2048.",
+    numsolisHint: "Drag any card with every card above it. Drop onto a higher value of either color, or an equal same-color card to merge. When a column is emptied it closes permanently. Complete 2048 in both colors.",
     numsolisCard: "Numsolis card",
     numsolisEmptyColumn: "Empty column",
+    numsolisClosedColumn: "Closed column",
     numsolisStackLimit: "Stack capacity: maximum 9 cards",
   },
   footer: {
