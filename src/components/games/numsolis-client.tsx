@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { RotateCcw, Undo2 } from "lucide-react";
+import { RotateCcw, Undo2, X } from "lucide-react";
 import type { Locale } from "@/i18n/config";
 import type { Dictionary } from "@/i18n/get-dictionary";
 import { api } from "@/lib/api";
@@ -12,7 +12,9 @@ import {
   canMoveNumsolis,
   deserializeNumsolis,
   numsolisProgress,
+  previewNumsolisMove,
   serializeNumsolis,
+  type NumsolisCard,
   type NumsolisColor,
   type NumsolisDifficulty,
 } from "@/lib/games/numsolis";
@@ -37,12 +39,14 @@ import {
 const cardClass: Record<NumsolisColor, string> = {
   ivory: "bg-secondary text-secondary-foreground",
   slate: "bg-muted text-gold-soft",
-  umber: "bg-surface text-gold-soft",
 };
 
 const CARD_STEP = 46;
 const DRAG_THRESHOLD = 7;
-const MERGE_PULSE_MS = 320;
+const LAND_MS = 190;
+const MERGE_MS = 230;
+
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 type DragState = {
   from: number;
@@ -52,6 +56,7 @@ type DragState = {
   originY: number;
   x: number;
   y: number;
+  settling: boolean;
 };
 
 export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Dictionary }) {
@@ -72,9 +77,10 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   const { queueSave, clearSave, status, syncedAt, markSynced } = useAutosave("numsolis");
   const [dialogDismissed, setDialogDismissed] = useState(false);
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [mergePulseIds, setMergePulseIds] = useState<number[]>([]);
+  const [visualColumns, setVisualColumns] = useState<NumsolisCard[][] | null>(null);
+  const [mergePulseId, setMergePulseId] = useState<number | null>(null);
+  const [animating, setAnimating] = useState(false);
   const resultPosted = useRef(false);
-  const mergeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
   const saveQuery = useQuery({
@@ -93,7 +99,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
 
   const remote = useRemoteWatch({
     game: "numsolis",
-    enabled: !!state && !won && !askContinue,
+    enabled: !!state && !won && !askContinue && !animating,
     syncedAt,
   });
   const remoteRestored = remote ? deserializeNumsolis(remote.state) : null;
@@ -101,6 +107,8 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
 
   const loadRemote = () => {
     if (!remote || !remoteRestored) return;
+    setVisualColumns(null);
+    setDrag(null);
     init(remoteRestored);
     markSynced(remote.updatedAt);
     haptics.tap();
@@ -123,10 +131,10 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   }, [saveQuery.isSuccess, saveQuery.data]);
 
   useEffect(() => {
-    if (!state || won) return;
+    if (!state || won || animating) return;
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [state, won, tick]);
+  }, [state, won, animating, tick]);
 
   useEffect(() => {
     if (revision === 0) return;
@@ -154,53 +162,113 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     if (state && !askContinue) boardRef.current?.focus({ preventScroll: true });
   }, [state, askContinue]);
 
-  useEffect(() => () => {
-    if (mergeTimer.current) clearTimeout(mergeTimer.current);
-  }, []);
+  const resetAnimation = () => {
+    setAnimating(false);
+    setDrag(null);
+    setVisualColumns(null);
+    setMergePulseId(null);
+  };
 
   const startNew = (difficulty: NumsolisDifficulty = state?.difficulty ?? "medium") => {
     resultPosted.current = false;
-    setMergePulseIds([]);
+    resetAnimation();
     clearSave();
     newGame(difficulty);
     setDialogDismissed(true);
   };
 
   const continueSaved = () => {
+    resetAnimation();
     if (restorable) init(restorable);
     else newGame("medium");
     markSynced(saveQuery.data?.save?.updatedAt ?? null);
     setDialogDismissed(true);
   };
 
-  const showMergePulse = (ids: number[]) => {
-    if (ids.length === 0) return;
-    setMergePulseIds(ids);
-    if (mergeTimer.current) clearTimeout(mergeTimer.current);
-    mergeTimer.current = setTimeout(() => setMergePulseIds([]), MERGE_PULSE_MS);
+  const columnElement = (index: number) =>
+    boardRef.current?.querySelector<HTMLElement>(`[data-numsolis-column="${index}"]`) ?? null;
+
+  const landingOffset = (from: number, to: number, start: number) => {
+    const current = useNumsolisStore.getState().state;
+    const source = columnElement(from);
+    const target = columnElement(to);
+    if (!current || !source || !target) return { x: 0, y: 0 };
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    return {
+      x: targetRect.left - sourceRect.left,
+      y: current.columns[to].length * CARD_STEP - start * CARD_STEP,
+    };
   };
 
-  const commitMove = (from: number, to: number, start: number) => {
-    if (!state || !canMoveNumsolis(state, from, to, start)) return false;
+  const animateLanding = async (from: number, to: number, start: number, existingDrag: DragState | null) => {
+    const target = landingOffset(from, to, start);
+    if (!existingDrag) {
+      setDrag({
+        from,
+        start,
+        pointerId: -1,
+        originX: 0,
+        originY: 0,
+        x: 0,
+        y: 0,
+        settling: false,
+      });
+      await wait(20);
+    }
+    setDrag((current) => ({
+      ...(current ?? {
+        from,
+        start,
+        pointerId: -1,
+        originX: 0,
+        originY: 0,
+        x: 0,
+        y: 0,
+        settling: false,
+      }),
+      x: target.x,
+      y: target.y,
+      settling: true,
+    }));
+    await wait(LAND_MS);
+  };
 
-    const beforeValues = new Map(state.columns.flat().map((card) => [card.id, card.value]));
-    if (!move(from, to, start)) return false;
+  const animateMove = async (from: number, to: number, start: number, existingDrag: DragState | null = null) => {
+    const current = useNumsolisStore.getState().state;
+    if (!current || animating || !canMoveNumsolis(current, from, to, start)) return false;
+    const preview = previewNumsolisMove(current, from, to, start);
+    if (!preview) return false;
 
-    const after = useNumsolisStore.getState().state;
-    if (after) {
-      const grownIds = after.columns
-        .flat()
-        .filter((card) => (beforeValues.get(card.id) ?? card.value) < card.value)
-        .map((card) => card.id);
-      showMergePulse(grownIds);
+    setAnimating(true);
+    select(null);
+    await animateLanding(from, to, start, existingDrag);
+
+    // Switch the DOM to the landed, uncollapsed stack only after the flying
+    // cards are already at exactly the same coordinates.
+    setVisualColumns(preview.stages[0].columns);
+    setDrag(null);
+    await wait(45);
+
+    // Every collapse stage is rendered separately. AnimatePresence removes one
+    // consumed card at a time while the surviving doubled card pulses.
+    for (const stage of preview.stages.slice(1)) {
+      setMergePulseId(stage.pulseId);
+      setVisualColumns(stage.columns);
+      haptics.tap();
+      await wait(MERGE_MS);
     }
 
-    haptics.tap();
-    return true;
+    const moved = move(from, to, start);
+    setMergePulseId(null);
+    setVisualColumns(null);
+    setAnimating(false);
+    if (moved && preview.stages.length === 1) haptics.tap();
+    return moved;
   };
 
   const chooseCard = (column: number, start: number) => {
-    if (!state || won) return;
+    if (!state || won || animating) return;
     if (selectedColumn === null || selectedStart === null) {
       select(column, start);
       haptics.tap();
@@ -210,16 +278,21 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
       select(column, start);
       return;
     }
-    if (!commitMove(selectedColumn, column, selectedStart)) select(column, start);
+    if (canMoveNumsolis(state, selectedColumn, column, selectedStart)) {
+      void animateMove(selectedColumn, column, selectedStart);
+    } else {
+      select(column, start);
+    }
   };
 
   const chooseEmptyColumn = (column: number) => {
-    if (!state || won || selectedColumn === null || selectedStart === null) return;
-    commitMove(selectedColumn, column, selectedStart);
+    if (!state || won || animating || state.closedColumns[column]) return;
+    if (selectedColumn === null || selectedStart === null) return;
+    void animateMove(selectedColumn, column, selectedStart);
   };
 
   const onPointerDown = (event: React.PointerEvent, from: number, start: number) => {
-    if (!state || won) return;
+    if (!state || won || animating) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
@@ -230,11 +303,12 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
       originY: event.clientY,
       x: 0,
       y: 0,
+      settling: false,
     });
   };
 
   const onBoardPointerMove = (event: React.PointerEvent) => {
-    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (!drag || drag.settling || event.pointerId !== drag.pointerId) return;
     setDrag((current) =>
       current
         ? { ...current, x: event.clientX - current.originX, y: event.clientY - current.originY }
@@ -256,22 +330,40 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   };
 
   const onBoardPointerUp = (event: React.PointerEvent) => {
-    if (!drag || event.pointerId !== drag.pointerId || !state) return;
+    if (!drag || drag.settling || event.pointerId !== drag.pointerId || !state || animating) return;
+    const releasedDrag = drag;
     const distance = Math.hypot(drag.x, drag.y);
     const to = columnAtPoint(event.clientX, event.clientY);
 
     if (distance < DRAG_THRESHOLD) {
+      setDrag(null);
       chooseCard(drag.from, drag.start);
-    } else if (Number.isInteger(to) && to >= 0 && to < state.columns.length && to !== drag.from) {
-      commitMove(drag.from, to, drag.start);
+      return;
     }
+
+    if (
+      Number.isInteger(to) &&
+      to >= 0 &&
+      to < state.columns.length &&
+      to !== drag.from &&
+      canMoveNumsolis(state, drag.from, to, drag.start)
+    ) {
+      void animateMove(drag.from, to, drag.start, releasedDrag);
+      return;
+    }
+
+    // Invalid drop: spring back instead of disappearing/teleporting.
+    setDrag((current) => current ? { ...current, x: 0, y: 0, settling: true } : null);
+    setTimeout(() => setDrag(null), LAND_MS);
+  };
+
+  const onBoardPointerCancel = () => {
+    if (drag?.settling) return;
     setDrag(null);
   };
 
-  const onBoardPointerCancel = () => setDrag(null);
-
   const onBoardKeyDown = (event: React.KeyboardEvent) => {
-    if (!state || won || selectedColumn === null || selectedStart === null) return;
+    if (!state || won || animating || selectedColumn === null || selectedStart === null) return;
     if (event.key === "Escape") {
       event.preventDefault();
       select(null);
@@ -281,12 +373,15 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     event.preventDefault();
     const delta = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
     const target = selectedColumn + delta;
-    if (target >= 0 && target < state.columns.length) commitMove(selectedColumn, target, selectedStart);
+    if (target >= 0 && target < state.columns.length && canMoveNumsolis(state, selectedColumn, target, selectedStart)) {
+      void animateMove(selectedColumn, target, selectedStart);
+    }
   };
 
   const handleUndo = () => {
+    if (animating) return;
     resultPosted.current = false;
-    setMergePulseIds([]);
+    resetAnimation();
     if (undo()) haptics.tap();
   };
 
@@ -306,7 +401,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
         <SaveIndicator status={status} dict={dict} />
-        <Select value={difficulty} onValueChange={(value) => startNew(value as NumsolisDifficulty)}>
+        <Select value={difficulty} disabled={animating} onValueChange={(value) => startNew(value as NumsolisDifficulty)}>
           <SelectTrigger size="sm" className="rounded-full border-surface bg-card text-gold-soft" aria-label={dict.game.difficulty}>
             <SelectValue />
           </SelectTrigger>
@@ -320,20 +415,22 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
           variant="outline"
           size="sm"
           onClick={handleUndo}
-          disabled={history.length === 0 || won}
+          disabled={history.length === 0 || won || animating}
           className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft"
           aria-label={dict.game.undo}
         >
           <Undo2 className="size-3.5" />
           <span className="hidden sm:inline">{dict.game.undo}</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => startNew()} className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft">
+        <Button variant="outline" size="sm" disabled={animating} onClick={() => startNew()} className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft">
           <RotateCcw className="size-3.5" />
           <span className="hidden sm:inline">{dict.game.newGame}</span>
         </Button>
       </div>
     </div>
   );
+
+  const shownColumns = visualColumns ?? state?.columns ?? [];
 
   return (
     <GameShell locale={locale} dict={dict} title={dict.games.numsolis.name} toolbar={toolbar}>
@@ -357,26 +454,29 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
               aria-label={dict.games.numsolis.name}
               className="hairline relative grid min-h-[34rem] w-full touch-none grid-cols-6 items-start gap-1.5 overflow-hidden rounded-lg bg-card p-2 outline-none focus-visible:ring-2 focus-visible:ring-gold/40 sm:gap-2 sm:p-3"
             >
-              {state.columns.map((column, columnIndex) => {
+              {shownColumns.map((column, columnIndex) => {
                 const selectedFrom = selectedColumn === columnIndex ? selectedStart : null;
+                const isClosed = state.closedColumns[columnIndex];
                 return (
                   <div
                     key={columnIndex}
                     data-numsolis-column={columnIndex}
                     role="gridcell"
+                    aria-disabled={isClosed}
                     className="relative min-h-[31rem] min-w-0"
                   >
-                    <AnimatePresence initial={false}>
+                    <AnimatePresence initial={false} mode="popLayout">
                       {column.map((card, cardIndex) => {
                         const isSelected = selectedFrom !== null && selectedFrom !== undefined && cardIndex >= selectedFrom;
                         const isDragged = drag?.from === columnIndex && cardIndex >= drag.start;
-                        const isMergePulse = mergePulseIds.includes(card.id);
+                        const isMergePulse = mergePulseId === card.id;
                         const z = isDragged ? 100 + cardIndex : cardIndex + 1;
                         return (
                           <motion.button
                             key={card.id}
                             layout="position"
                             type="button"
+                            disabled={animating && !isDragged}
                             onPointerDown={(event) => onPointerDown(event, columnIndex, cardIndex)}
                             aria-pressed={isSelected}
                             aria-label={`${card.value} · ${dict.game.numsolisCard}`}
@@ -388,21 +488,21 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                               y: isDragged ? drag.y : 0,
                             }}
                             animate={{
-                              scale: isDragged ? 1.035 : isMergePulse ? [1, 1.14, 0.96, 1] : 1,
-                              rotate: isDragged ? 0.5 : 0,
-                              filter: isMergePulse ? ["brightness(1)", "brightness(1.3)", "brightness(1)"] : "brightness(1)",
+                              scale: isDragged ? 1.035 : isMergePulse ? [1, 1.11, 0.98, 1] : 1,
+                              rotate: isDragged && !drag.settling ? 0.5 : 0,
+                              opacity: 1,
                             }}
                             exit={{
-                              scale: 0.15,
+                              scale: 0.35,
                               opacity: 0,
-                              y: 8,
-                              transition: { duration: 0.18, ease: "easeIn" },
+                              transition: { duration: 0.16, ease: "easeIn" },
                             }}
                             transition={{
+                              x: { duration: LAND_MS / 1000, ease: [0.22, 1, 0.36, 1] },
+                              y: { duration: LAND_MS / 1000, ease: [0.22, 1, 0.36, 1] },
                               layout: { type: "spring", stiffness: 430, damping: 32 },
-                              scale: { duration: 0.3 },
-                              filter: { duration: 0.3 },
-                              rotate: { type: "spring", stiffness: 430, damping: 32 },
+                              scale: { duration: 0.2 },
+                              rotate: { duration: 0.14 },
                             }}
                           >
                             {card.value}
@@ -411,7 +511,16 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                       })}
                     </AnimatePresence>
 
-                    {column.length === 0 && (
+                    {column.length === 0 && isClosed && (
+                      <div
+                        aria-label={dict.game.numsolisClosedColumn}
+                        className="absolute inset-x-0 top-0 flex h-16 items-center justify-center rounded-md border border-surface/70 bg-background/30 text-muted-foreground"
+                      >
+                        <X className="size-7" strokeWidth={1.5} />
+                      </div>
+                    )}
+
+                    {column.length === 0 && !isClosed && (
                       <button
                         type="button"
                         data-numsolis-column={columnIndex}
@@ -425,7 +534,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                       className="absolute inset-x-1 bottom-2 border-t border-gold/50 pt-1 text-center label-mono text-muted-foreground"
                       aria-label={dict.game.numsolisStackLimit}
                     >
-                      {column.length}/{NUMSOLIS_STACK_LIMIT}
+                      {isClosed ? "×" : `${column.length}/${NUMSOLIS_STACK_LIMIT}`}
                     </div>
                   </div>
                 );
