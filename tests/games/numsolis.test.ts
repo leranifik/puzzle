@@ -28,6 +28,10 @@ function simpleState(columns: NumsolisState["columns"]): NumsolisState {
 }
 
 describe("numsolis", () => {
+  it("uses exactly three logical colors", () => {
+    expect(NUMSOLIS_COLORS).toEqual(["ivory", "slate", "umber"]);
+  });
+
   it("generates six-column layouts within the nine-card limit and never deals 2048", () => {
     for (const difficulty of NUMSOLIS_DIFFICULTIES) {
       for (let i = 0; i < 80; i++) {
@@ -46,7 +50,7 @@ describe("numsolis", () => {
     }
   });
 
-  it("every difficulty has a known legal path to a 2048 card", () => {
+  it("every difficulty has a known legal path to 2048 in every color", () => {
     for (const difficulty of NUMSOLIS_DIFFICULTIES) {
       for (let i = 0; i < 40; i++) {
         const generated = generateNumsolis(difficulty);
@@ -56,16 +60,18 @@ describe("numsolis", () => {
           const next = moveNumsolis(state, step.from, step.to, step.start);
           expect(next).not.toBeNull();
           state = next!;
-          if (isNumsolisWon(state)) break;
         }
         expect(isNumsolisWon(state)).toBe(true);
+        for (const color of NUMSOLIS_COLORS) {
+          expect(state.columns.flat().some((card) => card.color === color && card.value === 2048)).toBe(true);
+        }
       }
     }
   });
 
   it("allows a smaller card on a higher value regardless of color", () => {
     const state = simpleState([
-      [{ id: 1, value: 64, color: "amber" }],
+      [{ id: 1, value: 64, color: "ivory" }],
       [{ id: 2, value: 128, color: "slate" }],
       [], [], [], [],
     ]);
@@ -75,8 +81,8 @@ describe("numsolis", () => {
   it("moves a whole suffix, including an entire column", () => {
     const state = simpleState([
       [
-        { id: 1, value: 128, color: "amber" },
-        { id: 2, value: 64, color: "ivory" },
+        { id: 1, value: 128, color: "ivory" },
+        { id: 2, value: 64, color: "umber" },
         { id: 3, value: 32, color: "slate" },
       ],
       [{ id: 4, value: 256, color: "umber" }],
@@ -92,18 +98,26 @@ describe("numsolis", () => {
     expect(whole?.columns[2].map((card) => card.value)).toEqual([128, 64, 32]);
   });
 
-  it("auto-merges equal values only when their colors match and creates 2048 from 1024", () => {
-    const sameColor = simpleState([
-      [{ id: 1, value: 1024, color: "amber" }],
-      [{ id: 2, value: 1024, color: "amber" }],
+  it("creates 2048 from matching 1024 cards but does not win until all colors reach 2048", () => {
+    const oneColor = simpleState([
+      [{ id: 1, value: 1024, color: "ivory" }],
+      [{ id: 2, value: 1024, color: "ivory" }],
       [], [], [], [],
     ]);
-    const merged = moveNumsolis(sameColor, 1, 0, 0);
-    expect(merged?.columns[0]).toEqual([{ id: 1, value: 2048, color: "amber" }]);
-    expect(merged && isNumsolisWon(merged)).toBe(true);
+    const merged = moveNumsolis(oneColor, 1, 0, 0);
+    expect(merged?.columns[0]).toEqual([{ id: 1, value: 2048, color: "ivory" }]);
+    expect(merged && isNumsolisWon(merged)).toBe(false);
+
+    const allColors = simpleState([
+      [{ id: 1, value: 2048, color: "ivory" }],
+      [{ id: 2, value: 2048, color: "slate" }],
+      [{ id: 3, value: 2048, color: "umber" }],
+      [], [], [],
+    ]);
+    expect(isNumsolisWon(allColors)).toBe(true);
 
     const otherColor = simpleState([
-      [{ id: 1, value: 1024, color: "amber" }],
+      [{ id: 1, value: 1024, color: "ivory" }],
       [{ id: 2, value: 1024, color: "slate" }],
       [], [], [], [],
     ]);
@@ -118,8 +132,8 @@ describe("numsolis", () => {
     }));
     const state = simpleState([
       [
-        { id: 20, value: 4, color: "amber" },
-        { id: 21, value: 2, color: "ivory" },
+        { id: 20, value: 4, color: "ivory" },
+        { id: 21, value: 2, color: "umber" },
       ],
       full,
       [], [], [], [],
@@ -136,7 +150,7 @@ describe("numsolis", () => {
 
     const overfull = structuredClone(state);
     while (overfull.columns[0].length <= NUMSOLIS_STACK_LIMIT) {
-      overfull.columns[0].push({ id: overfull.nextId++, value: 2, color: "amber" });
+      overfull.columns[0].push({ id: overfull.nextId++, value: 2, color: "ivory" });
     }
     expect(deserializeNumsolis(JSON.stringify(overfull))).toBeNull();
   });
