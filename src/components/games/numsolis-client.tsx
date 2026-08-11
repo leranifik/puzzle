@@ -337,7 +337,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                     key={columnIndex}
                     data-numsolis-column={columnIndex}
                     role="gridcell"
-                    className="relative min-h-[31rem] min-w-0 rounded-md bg-background/15"
+                    className="relative min-h-[31rem] min-w-0"
                   >
                     {column.map((card, cardIndex) => {
                       const isSelected = selectedFrom !== null && selectedFrom !== undefined && cardIndex >= selectedFrom;
@@ -372,7 +372,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                         data-numsolis-column={columnIndex}
                         onClick={() => chooseEmptyColumn(columnIndex)}
                         aria-label={dict.game.numsolisEmptyColumn}
-                        className="absolute inset-x-0 top-0 h-16 rounded-md border border-dashed border-surface bg-background/20"
+                        className="absolute inset-x-0 top-0 h-16 rounded-md border border-dashed border-surface/60 bg-transparent"
                       />
                     )}
 
