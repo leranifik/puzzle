@@ -57,12 +57,13 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => ({
   },
 
   undo: () => {
-    const { history } = get();
+    const { history, state } = get();
     const previous = history.at(-1);
-    if (!previous) return false;
+    if (!previous || !state) return false;
+    const restored = { ...snapshot(previous), seconds: state.seconds };
     set({
-      state: previous,
-      won: isNumsolisWon(previous),
+      state: restored,
+      won: isNumsolisWon(restored),
       selectedColumn: null,
       selectedStart: null,
       history: history.slice(0, -1),
