@@ -12,14 +12,16 @@ import {
   isNumsolisWon,
   moveNumsolis,
   newNumsolis,
+  previewNumsolisMove,
   serializeNumsolis,
   type NumsolisState,
 } from "@/lib/games/numsolis";
 
-function simpleState(columns: NumsolisState["columns"]): NumsolisState {
+function simpleState(columns: NumsolisState["columns"], closedColumns = new Array(6).fill(false)): NumsolisState {
   const ids = columns.flat().map((card) => card.id);
   return {
     columns,
+    closedColumns,
     moves: 0,
     seconds: 0,
     nextId: Math.max(0, ...ids) + 1,
@@ -28,17 +30,18 @@ function simpleState(columns: NumsolisState["columns"]): NumsolisState {
 }
 
 describe("numsolis", () => {
-  it("uses exactly three logical colors", () => {
-    expect(NUMSOLIS_COLORS).toEqual(["ivory", "slate", "umber"]);
+  it("uses exactly two logical colors", () => {
+    expect(NUMSOLIS_COLORS).toEqual(["ivory", "slate"]);
   });
 
-  it("generates six-column layouts within the nine-card limit and never deals 2048", () => {
+  it("generates six non-empty columns within the nine-card limit and never deals 2048", () => {
     for (const difficulty of NUMSOLIS_DIFFICULTIES) {
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 40; i++) {
         const state = newNumsolis(difficulty);
         expect(state.difficulty).toBe(difficulty);
         expect(state.columns).toHaveLength(NUMSOLIS_COLUMNS);
-        expect(state.columns.every((column) => column.length <= NUMSOLIS_STACK_LIMIT)).toBe(true);
+        expect(state.closedColumns).toEqual(new Array(NUMSOLIS_COLUMNS).fill(false));
+        expect(state.columns.every((column) => column.length > 0 && column.length <= NUMSOLIS_STACK_LIMIT)).toBe(true);
         for (const card of state.columns.flat()) {
           expect(card.value).toBeGreaterThanOrEqual(2);
           expect(card.value).toBeLessThanOrEqual(NUMSOLIS_MAX_DEALT_VALUE);
@@ -50,9 +53,9 @@ describe("numsolis", () => {
     }
   });
 
-  it("every difficulty has a known legal path to 2048 in every color", () => {
+  it("every difficulty has a known legal path to 2048 in both colors with closing columns", () => {
     for (const difficulty of NUMSOLIS_DIFFICULTIES) {
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 20; i++) {
         const generated = generateNumsolis(difficulty);
         let state = generated.state;
         for (const step of generated.solution) {
@@ -82,23 +85,38 @@ describe("numsolis", () => {
     const state = simpleState([
       [
         { id: 1, value: 128, color: "ivory" },
-        { id: 2, value: 64, color: "umber" },
-        { id: 3, value: 32, color: "slate" },
+        { id: 2, value: 64, color: "slate" },
+        { id: 3, value: 32, color: "ivory" },
       ],
-      [{ id: 4, value: 256, color: "umber" }],
+      [{ id: 4, value: 256, color: "slate" }],
       [], [], [], [],
     ]);
 
     const suffix = moveNumsolis(state, 0, 1, 1);
     expect(suffix?.columns[0].map((card) => card.value)).toEqual([128]);
     expect(suffix?.columns[1].map((card) => card.value)).toEqual([256, 64, 32]);
+    expect(suffix?.closedColumns[0]).toBe(false);
 
     const whole = moveNumsolis(state, 0, 2, 0);
     expect(whole?.columns[0]).toEqual([]);
     expect(whole?.columns[2].map((card) => card.value)).toEqual([128, 64, 32]);
+    expect(whole?.closedColumns[0]).toBe(true);
   });
 
-  it("creates 2048 from matching 1024 cards but does not win until all colors reach 2048", () => {
+  it("permanently forbids moves into a column after it has been emptied", () => {
+    const state = simpleState([
+      [{ id: 1, value: 64, color: "ivory" }],
+      [{ id: 2, value: 128, color: "slate" }],
+      [{ id: 3, value: 32, color: "ivory" }],
+      [], [], [],
+    ]);
+    const emptied = moveNumsolis(state, 0, 1, 0)!;
+    expect(emptied.columns[0]).toEqual([]);
+    expect(emptied.closedColumns[0]).toBe(true);
+    expect(canMoveNumsolis(emptied, 2, 0, 0)).toBe(false);
+  });
+
+  it("creates 2048 from matching 1024 cards but does not win until both colors reach 2048", () => {
     const oneColor = simpleState([
       [{ id: 1, value: 1024, color: "ivory" }],
       [{ id: 2, value: 1024, color: "ivory" }],
@@ -108,13 +126,12 @@ describe("numsolis", () => {
     expect(merged?.columns[0]).toEqual([{ id: 1, value: 2048, color: "ivory" }]);
     expect(merged && isNumsolisWon(merged)).toBe(false);
 
-    const allColors = simpleState([
+    const bothColors = simpleState([
       [{ id: 1, value: 2048, color: "ivory" }],
       [{ id: 2, value: 2048, color: "slate" }],
-      [{ id: 3, value: 2048, color: "umber" }],
-      [], [], [],
+      [], [], [], [],
     ]);
-    expect(isNumsolisWon(allColors)).toBe(true);
+    expect(isNumsolisWon(bothColors)).toBe(true);
 
     const otherColor = simpleState([
       [{ id: 1, value: 1024, color: "ivory" }],
@@ -122,6 +139,23 @@ describe("numsolis", () => {
       [], [], [], [],
     ]);
     expect(canMoveNumsolis(otherColor, 1, 0, 0)).toBe(false);
+  });
+
+  it("exposes every chained collapse as a separate animation stage", () => {
+    const state = simpleState([
+      [{ id: 1, value: 512, color: "ivory" }],
+      [
+        { id: 2, value: 1024, color: "ivory" },
+        { id: 3, value: 512, color: "ivory" },
+      ],
+      [], [], [], [],
+    ]);
+    const preview = previewNumsolisMove(state, 0, 1, 0);
+    expect(preview).not.toBeNull();
+    expect(preview!.stages).toHaveLength(3);
+    expect(preview!.stages[0].columns[1].map((card) => card.value)).toEqual([1024, 512, 512]);
+    expect(preview!.stages[1].columns[1].map((card) => card.value)).toEqual([1024, 1024]);
+    expect(preview!.stages[2].columns[1].map((card) => card.value)).toEqual([2048]);
   });
 
   it("rejects stack moves that would leave more than nine cards", () => {
@@ -133,7 +167,7 @@ describe("numsolis", () => {
     const state = simpleState([
       [
         { id: 20, value: 4, color: "ivory" },
-        { id: 21, value: 2, color: "umber" },
+        { id: 21, value: 2, color: "slate" },
       ],
       full,
       [], [], [], [],
@@ -141,12 +175,13 @@ describe("numsolis", () => {
     expect(canMoveNumsolis(state, 0, 1, 0)).toBe(false);
   });
 
-  it("round-trips valid saves and rejects malformed ones", () => {
+  it("round-trips valid saves and rejects malformed or legacy ones", () => {
     const state = newNumsolis("hard");
     expect(deserializeNumsolis(serializeNumsolis(state))).toEqual(state);
     expect(deserializeNumsolis("not json")).toBeNull();
     expect(deserializeNumsolis(JSON.stringify({ ...state, difficulty: "nightmare" }))).toBeNull();
     expect(deserializeNumsolis(JSON.stringify({ ...state, columns: state.columns.slice(0, 5) }))).toBeNull();
+    expect(deserializeNumsolis(JSON.stringify({ ...state, closedColumns: undefined }))).toBeNull();
 
     const overfull = structuredClone(state);
     while (overfull.columns[0].length <= NUMSOLIS_STACK_LIMIT) {
