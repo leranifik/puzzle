@@ -50,10 +50,12 @@ export function canMoveNumsolis(state: NumsolisState, from: number, to: number):
   const source = state.columns[from];
   const target = state.columns[to];
   const card = source.at(-1);
-  if (!card || target.length >= NUMSOLIS_STACK_LIMIT) return false;
+  if (!card) return false;
   const targetCard = target.at(-1);
-  if (!targetCard) return true;
-  return targetCard.value > card.value || sameMergePair(card, targetCard);
+  if (!targetCard) return target.length < NUMSOLIS_STACK_LIMIT;
+  const mergesImmediately = sameMergePair(card, targetCard);
+  if (target.length >= NUMSOLIS_STACK_LIMIT && !mergesImmediately) return false;
+  return targetCard.value > card.value || mergesImmediately;
 }
 
 export function moveNumsolis(state: NumsolisState, from: number, to: number): NumsolisState | null {
