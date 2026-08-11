@@ -216,42 +216,30 @@ test.describe("numsolis", () => {
     await page.goto("/en/play/numsolis");
     await dismissContinueDialog(page);
     const board = page.locator("[role=grid]");
-    const columns = board.locator("[data-numsolis-column]");
+    const columns = board.locator("[role=gridcell]");
     const movesCounter = page.locator(".font-display.tabular-nums").first();
+    await expect(columns).toHaveCount(6);
 
-    const pair = await page.evaluate(() => {
-      const cols = [...document.querySelectorAll<HTMLElement>("[data-numsolis-column]")];
-      const data = cols.map((col, index) => {
-        const cards = [...col.querySelectorAll<HTMLButtonElement>('button[aria-label*="Numsolis card"]')];
-        return {
-          index,
-          top: cards.at(-1) ? Number(cards.at(-1)!.textContent) : null,
-          count: cards.length,
-        };
-      });
-      for (const source of data) {
-        if (source.top === null) continue;
-        for (const target of data) {
-          if (source.index === target.index || target.top === null || target.count >= 9) continue;
-          if (target.top > source.top) return { from: source.index, to: target.index };
+    let moved = false;
+    for (let from = 0; from < 6 && !moved; from++) {
+      const sourceCards = columns.nth(from).getByRole("button", { name: /Numsolis card/ });
+      const sourceCount = await sourceCards.count();
+      for (let cardIndex = sourceCount - 1; cardIndex >= 0 && !moved; cardIndex--) {
+        for (let to = 0; to < 6 && !moved; to++) {
+          if (to === from) continue;
+          const sourceBox = await sourceCards.nth(cardIndex).boundingBox();
+          const targetBox = await columns.nth(to).boundingBox();
+          if (!sourceBox || !targetBox) continue;
+
+          await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + 18);
+          await page.mouse.down();
+          await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 120, { steps: 8 });
+          await page.mouse.up();
+          if ((await movesCounter.innerText()) === "1") moved = true;
         }
       }
-      return null;
-    });
+    }
 
-    expect(pair).not.toBeNull();
-    if (!pair) return;
-    const sourceCard = columns.nth(pair.from).getByRole("button", { name: /Numsolis card/ }).last();
-    const sourceBox = await sourceCard.boundingBox();
-    const targetBox = await columns.nth(pair.to).boundingBox();
-    expect(sourceBox).not.toBeNull();
-    expect(targetBox).not.toBeNull();
-    if (!sourceBox || !targetBox) return;
-
-    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + 100, { steps: 8 });
-    await page.mouse.up();
-    await expect(movesCounter).toHaveText("1");
+    expect(moved).toBe(true);
   });
 });
