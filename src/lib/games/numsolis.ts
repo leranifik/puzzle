@@ -53,38 +53,38 @@ type NumsolisDifficultyProfile = {
   score: readonly [number, number];
   maxColumnHeight: readonly [number, number];
   buriedPairDepth: readonly [number, number];
-  minOpenMergeMoves: number;
+  openMergeMoves: readonly [number, number];
   minDecoyMoves: number;
   minDecoyRatio: number;
 };
 
 const DIFFICULTY_PROFILES: Record<NumsolisDifficulty, NumsolisDifficultyProfile> = {
   easy: {
-    extraSplits: [8, 12],
-    score: [0, 79],
-    maxColumnHeight: [1, 5],
-    buriedPairDepth: [0, 15],
-    minOpenMergeMoves: 6,
-    minDecoyMoves: 0,
-    minDecoyRatio: 0,
+    extraSplits: [14, 18],
+    score: [80, 119],
+    maxColumnHeight: [5, 7],
+    buriedPairDepth: [10, 30],
+    openMergeMoves: [0, 12],
+    minDecoyMoves: 10,
+    minDecoyRatio: 0.5,
   },
   medium: {
-    extraSplits: [16, 22],
-    score: [80, 139],
-    maxColumnHeight: [5, 8],
-    buriedPairDepth: [8, 40],
-    minOpenMergeMoves: 4,
-    minDecoyMoves: 0,
-    minDecoyRatio: 0,
+    extraSplits: [20, 26],
+    score: [120, 169],
+    maxColumnHeight: [6, NUMSOLIS_STACK_LIMIT],
+    buriedPairDepth: [25, 55],
+    openMergeMoves: [0, 16],
+    minDecoyMoves: 14,
+    minDecoyRatio: 0.55,
   },
   hard: {
-    extraSplits: [24, 30],
-    score: [140, Number.POSITIVE_INFINITY],
-    maxColumnHeight: [7, NUMSOLIS_STACK_LIMIT],
-    buriedPairDepth: [25, Number.POSITIVE_INFINITY],
-    minOpenMergeMoves: 0,
-    minDecoyMoves: 12,
-    minDecoyRatio: 0.45,
+    extraSplits: [28, 34],
+    score: [170, Number.POSITIVE_INFINITY],
+    maxColumnHeight: [8, NUMSOLIS_STACK_LIMIT],
+    buriedPairDepth: [50, Number.POSITIVE_INFINITY],
+    openMergeMoves: [0, 16],
+    minDecoyMoves: 16,
+    minDecoyRatio: 0.58,
   },
 };
 
@@ -335,7 +335,7 @@ function matchesDifficultyProfile(
     inRange(metrics.score, profile.score) &&
     inRange(metrics.maxColumnHeight, profile.maxColumnHeight) &&
     inRange(metrics.buriedPairDepth, profile.buriedPairDepth) &&
-    metrics.openMergeMoves >= profile.minOpenMergeMoves &&
+    inRange(metrics.openMergeMoves, profile.openMergeMoves) &&
     metrics.decoyMoves >= profile.minDecoyMoves &&
     metrics.decoyRatio >= profile.minDecoyRatio
   );
