@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   NUMSOLIS_COLORS,
   NUMSOLIS_COLUMNS,
@@ -108,6 +108,25 @@ describe("numsolis", () => {
       expect(hardMetrics.solutionMoves).toBeLessThanOrEqual(60);
       expect(hardMetrics.maxColumnHeight).toBeGreaterThanOrEqual(8);
       expect(hardMetrics.maxColumnHeight).toBeLessThanOrEqual(9);
+    }
+  });
+
+  it("falls back to a dense certified hard deal when randomness cannot produce one", () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const generated = generateNumsolis("hard");
+      expect(generated.state.columns.flat().length).toBe(46);
+      expect(generated.state.columns.every((column) => column.length > 0 && column.length <= NUMSOLIS_STACK_LIMIT)).toBe(true);
+
+      let state = generated.state;
+      for (const step of generated.solution) {
+        const next = moveNumsolis(state, step.from, step.to, step.start);
+        expect(next).not.toBeNull();
+        state = next!;
+      }
+      expect(isNumsolisWon(state)).toBe(true);
+    } finally {
+      random.mockRestore();
     }
   });
 
