@@ -167,12 +167,8 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
 
   const commitMove = (from: number, to: number, start: number) => {
     if (!state || !canMoveNumsolis(state, from, to, start)) return false;
-    const movingBottom = state.columns[from][start];
-    const targetTop = state.columns[to].at(-1);
-    const willMerge = !!targetTop && targetTop.value === movingBottom.value && targetTop.color === movingBottom.color;
     if (!move(from, to, start)) return false;
-    if (willMerge) haptics.tap();
-    else haptics.tap();
+    haptics.tap();
     return true;
   };
 
@@ -219,11 +215,23 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
     );
   };
 
+  const columnAtPoint = (clientX: number, clientY: number): number => {
+    const board = boardRef.current;
+    if (!board) return -1;
+    const columns = board.querySelectorAll<HTMLElement>("[data-numsolis-column]");
+    for (const column of columns) {
+      const rect = column.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+        return Number(column.dataset.numsolisColumn);
+      }
+    }
+    return -1;
+  };
+
   const onBoardPointerUp = (event: React.PointerEvent) => {
     if (!drag || event.pointerId !== drag.pointerId || !state) return;
     const distance = Math.hypot(drag.x, drag.y);
-    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-numsolis-column]");
-    const to = target ? Number(target.dataset.numsolisColumn) : -1;
+    const to = columnAtPoint(event.clientX, event.clientY);
 
     if (distance < DRAG_THRESHOLD) {
       chooseCard(drag.from, drag.start);
@@ -350,7 +358,6 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
                             y: isDragged ? drag.y : 0,
                           }}
                           animate={{ scale: isDragged ? 1.035 : 1, rotate: isDragged ? 0.5 : 0 }}
-                          whileHover={{ y: isDragged ? drag.y : -2 }}
                           transition={{ type: "spring", stiffness: 430, damping: 32 }}
                         >
                           {card.value}
