@@ -4,7 +4,7 @@
  *  - ensures a production build exists (builds once if .next is missing).
  */
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -15,7 +15,10 @@ export default function globalSetup() {
   // fresh database for every run
   rmSync(E2E_DIR, { recursive: true, force: true });
   mkdirSync(E2E_DIR, { recursive: true });
-  execSync("npx prisma db push --accept-data-loss", {
+  // Prisma 7's schema engine expects the SQLite file to exist. This fresh
+  // test database contains no data to discard, so no destructive flag is needed.
+  writeFileSync(E2E_DB, "");
+  execSync("npx prisma db push", {
     cwd: ROOT,
     env: { ...process.env, DATABASE_URL: `file:${E2E_DB}` },
     stdio: "pipe",

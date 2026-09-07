@@ -91,11 +91,14 @@ test.describe("landing page", () => {
     expect(session.saves).toEqual([]);
   });
 
-  test("games hub lists all four games", async ({ page }) => {
+  test("games hub lists all five games", async ({ page }) => {
     await page.goto("/ru/games");
     await expect(page.getByRole("heading", { name: "Все игры" })).toBeVisible();
-    for (const name of ["Пятнашки", "Судоку", "2048", "Мемори"]) {
-      await expect(page.getByRole("link", { name: new RegExp(name) })).toBeVisible();
+    await expect(page.locator('a[href^="/ru/play/"]')).toHaveCount(5);
+    for (const [id, name] of [["fifteen", "Пятнашки"], ["sudoku", "Судоку"], ["g2048", "2048"], ["memory", "Мемори"], ["numsolis", "Numsolis"]]) {
+      const link = page.locator(`a[href="/ru/play/${id}"]`);
+      await expect(link).toBeVisible();
+      await expect(link).toContainText(name);
     }
   });
 });

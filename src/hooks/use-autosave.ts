@@ -26,24 +26,33 @@ export function useAutosave(game: GameId) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingLabelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<{ state: string; progress: number } | null>(null);
+  const generation = useRef(0);
+  const requests = useRef(new Set<AbortController>());
+  const invalidateResponses = useCallback(() => { generation.current++; }, []);
   const qc = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: ({ state, progress }: { state: string; progress: number }) =>
-      api.saveGame(game, state, progress),
-    onMutate: () => {
+    mutationFn: ({ state, progress, controller }: { state: string; progress: number; generation: number; controller: AbortController }) =>
+      api.saveGame(game, state, progress, { signal: controller.signal }),
+    onMutate: (variables) => {
+      if (variables.generation !== generation.current) return;
       // Only surface "saving" for genuinely slow requests.
       if (savingLabelTimer.current) clearTimeout(savingLabelTimer.current);
       savingLabelTimer.current = setTimeout(() => setStatus("saving"), 600);
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
+      if (variables.generation !== generation.current) return;
       if (savingLabelTimer.current) clearTimeout(savingLabelTimer.current);
       setStatus("saved");
       setSyncedAt(data.updatedAt);
     },
-    onError: () => {
+    onError: (_error, variables) => {
+      if (variables.generation !== generation.current) return;
       if (savingLabelTimer.current) clearTimeout(savingLabelTimer.current);
       setStatus("idle");
+    },
+    onSettled: (_data, _error, variables) => {
+      requests.current.delete(variables.controller);
     },
   });
 
@@ -56,7 +65,9 @@ export function useAutosave(game: GameId) {
       timer.current = setTimeout(() => {
         timer.current = null;
         if (pending.current) {
-          mutate(pending.current);
+          const controller = new AbortController();
+          requests.current.add(controller);
+          mutate({ ...pending.current, generation: generation.current, controller });
           pending.current = null;
         }
       }, 1000);
@@ -64,37 +75,44 @@ export function useAutosave(game: GameId) {
     [mutate],
   );
 
+  /** Drop local work before accepting a remote save; never delete server data. */
+  const cancelPending = useCallback(() => {
+    invalidateResponses();
+    pending.current = null;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (savingLabelTimer.current) clearTimeout(savingLabelTimer.current);
+    savingLabelTimer.current = null;
+    for (const controller of requests.current) controller.abort();
+    requests.current.clear();
+    setStatus("idle");
+  }, [invalidateResponses]);
+
   // Flush on unmount so the last move is not lost.
   useEffect(() => {
     return () => {
+      invalidateResponses();
       if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
       if (savingLabelTimer.current) clearTimeout(savingLabelTimer.current);
+      savingLabelTimer.current = null;
       const p = pending.current;
+      pending.current = null;
       if (p) {
-        // fire-and-forget; keepalive survives page navigation
-        void fetch(`/api/saves/${game}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(p),
-          keepalive: true,
-        });
+        // The shared transport also carries TMA auth when cookies are blocked.
+        void api.saveGame(game, p.state, p.progress, { keepalive: true }).catch(() => {});
       }
     };
-  }, [game]);
+  }, [game, invalidateResponses]);
 
   const clearSave = useCallback(() => {
-    pending.current = null;
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    setStatus("idle");
+    cancelPending();
     setSyncedAt(null);
-    void api.deleteSave(game).then(() => qc.invalidateQueries({ queryKey: sessionKey }));
-  }, [game, qc]);
+    void api.deleteSave(game).then(() => qc.invalidateQueries({ queryKey: sessionKey })).catch(() => {});
+  }, [cancelPending, game, qc]);
 
   /** Record the server timestamp of a save we just loaded/accepted. */
   const markSynced = useCallback((iso: string | null) => setSyncedAt(iso), []);
 
-  return { queueSave, clearSave, status, syncedAt, markSynced };
+  return { queueSave, cancelPending, clearSave, status, syncedAt, markSynced };
 }

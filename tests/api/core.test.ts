@@ -197,6 +197,29 @@ describe("saves API", () => {
 });
 
 describe("results API", () => {
+  it("accepts Numsolis saves and results without sharing another game's slot", async () => {
+    useDevice(newDevice());
+    await session.GET();
+    const payload = { state: '{"version":1,"id":"numsolis-api-test"}', progress: 0.25 };
+    const put = await saves.PUT(
+      await jsonRequest("/api/saves/numsolis", payload, "PUT"), params("numsolis"),
+    );
+    expect(put.status).toBe(200);
+    const loaded = await saves.GET(
+      await jsonRequest("/api/saves/numsolis", undefined, "GET"), params("numsolis"),
+    );
+    expect((await loaded.json()).save).toMatchObject({ game: "numsolis", ...payload });
+    const other = await saves.GET(
+      await jsonRequest("/api/saves/g2048", undefined, "GET"), params("g2048"),
+    );
+    expect((await other.json()).save).toBeNull();
+    const result = await results.POST(await jsonRequest("/api/results", {
+      game: "numsolis", moves: 42, seconds: 180, meta: { difficulty: "medium", rulesVersion: 1 },
+    }));
+    expect(result.status).toBe(200);
+    expect((await result.json()).id).toBeTruthy();
+  });
+
   it("records a finished game", async () => {
     useDevice(newDevice());
     await session.GET();
