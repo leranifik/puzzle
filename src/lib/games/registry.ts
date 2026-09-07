@@ -1,4 +1,4 @@
-import { Grid3X3, Hash, Boxes, Copy, type LucideIcon } from "lucide-react";
+import { Grid3X3, Hash, Boxes, Copy, Layers, type LucideIcon } from "lucide-react";
 import type { GameId } from "@/lib/schemas";
 import type { Dictionary } from "@/i18n/get-dictionary";
 
@@ -38,5 +38,12 @@ export const GAMES: GameMeta[] = [
     index: "004",
     name: (d) => d.games.memory.name,
     tagline: (d) => d.games.memory.tagline,
+  },
+  {
+    id: "numsolis",
+    icon: Layers,
+    index: "005",
+    name: (d) => d.games.numsolis.name,
+    tagline: (d) => d.games.numsolis.tagline,
   },
 ];

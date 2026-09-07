@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # PuzzleHub — AI Agent Instructions
 
-PuzzleHub is a production puzzle-game mini-app (fifteen, sudoku, 2048, memory)
+PuzzleHub is a production puzzle-game mini-app (fifteen, sudoku, 2048, memory, numsolis)
 with cloud saves, cross-device sync, Telegram Mini Apps integration and a
 self-hosted analytics dashboard. Real users depend on it — do not break
 saves, auth, or the public API contract.
@@ -81,6 +81,10 @@ imports in engines or their tests.
    The `Dictionary` type is inferred from `en.ts`; a missing ru key is a
    compile error — this is intentional, keep it that way.
 8. e2e smoke test in `tests-e2e/games.spec.ts`.
+
+### Numsolis generation and saves
+
+Numsolis uses a pure engine plus deterministic generation. Every accepted deal must have a complete solution replayed through the same legal-move engine; a search timeout is not proof of solvability. Generation runs asynchronously through the generation client. Store `revision` changes only on meaningful local actions, not timer ticks or remote initialization. A pending generation must never overwrite a later new game, reset, or loaded save. Keep each new/replayed game ID unique and history within the existing 50,000-character save limit. See `NUMSOLIS.md` for the confirmed rules, including immediate-merge capacity and lower-neighbor cascade priority.
 
 ### Adding a language
 

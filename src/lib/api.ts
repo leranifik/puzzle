@@ -80,8 +80,9 @@ export const api = {
       json<{ player: PlayerDto; mergedGames: string[]; alreadyLinked: boolean }>(r),
     ),
 
-  saveGame: (game: GameId, state: string, progress: number) =>
+  saveGame: (game: GameId, state: string, progress: number, options: Pick<RequestInit, "keepalive" | "signal"> = {}) =>
     apiFetch(`/api/saves/${game}`, {
+      ...options,
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state, progress }),

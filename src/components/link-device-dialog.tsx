@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toDataURL } from "qrcode";
 import { MonitorSmartphone, Copy, Check, RefreshCw } from "lucide-react";
@@ -34,10 +34,14 @@ export function LinkDeviceDialog({
   locale,
   dict,
   compact = false,
+  icon,
+  triggerClassName,
 }: {
   locale: Locale;
   dict: Dictionary;
   compact?: boolean;
+  icon?: ReactNode;
+  triggerClassName?: string;
 }) {
   const t = dict.link;
   const [open, setOpen] = useState(false);
@@ -97,9 +101,9 @@ export function LinkDeviceDialog({
             variant="ghost"
             size="icon"
             aria-label={t.button}
-            className="text-muted-foreground hover:text-gold-soft"
+            className={triggerClassName ?? "text-muted-foreground hover:text-gold-soft"}
           >
-            <MonitorSmartphone className="size-4" />
+            {icon ?? <MonitorSmartphone className="size-4" />}
           </Button>
         ) : (
           <Button

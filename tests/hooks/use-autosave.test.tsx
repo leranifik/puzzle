@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { useAutosave } from "@/hooks/use-autosave";
 
+const initDataMock = vi.hoisted(() => vi.fn(() => ""));
+vi.mock("@/lib/telegram-client", () => ({ getInitDataRaw: initDataMock }));
+
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -24,6 +27,7 @@ async function flush(ms: number) {
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock.mockReset();
+  initDataMock.mockReturnValue("");
   fetchMock.mockResolvedValue(
     new Response(JSON.stringify({ ok: true, updatedAt: "2026-07-26T10:00:00.000Z" }), {
       status: 200,
@@ -153,5 +157,73 @@ describe("useAutosave", () => {
       state: '{"unsaved":1}',
       progress: 0.5,
     });
+  });
+
+  it("cancels pending local work without deleting a remote save or flushing on unmount", async () => {
+    const { result, unmount } = renderHook(() => useAutosave("numsolis"), { wrapper });
+    act(() => {
+      result.current.queueSave("local", 0.2);
+      result.current.cancelPending();
+      result.current.markSynced("remote-time");
+    });
+    await flush(1500);
+    expect(result.current.syncedAt).toBe("remote-time");
+    unmount();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("aborts old requests and ignores their late success after remote acceptance", async () => {
+    let resolveOld!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const { result } = renderHook(() => useAutosave("numsolis"), { wrapper });
+    act(() => result.current.queueSave("old", 0));
+    await flush(1700);
+    expect(result.current.status).toBe("saving");
+    const signal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    act(() => {
+      result.current.cancelPending();
+      result.current.markSynced("accepted-remote");
+    });
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      resolveOld(new Response(JSON.stringify({ ok: true, updatedAt: "stale-response" })));
+    });
+    await flush(1000);
+    expect(result.current.status).toBe("idle");
+    expect(result.current.syncedAt).toBe("accepted-remote");
+    act(() => result.current.queueSave("new", 0.4));
+    await flush(1100);
+    expect(result.current.status).toBe("saved");
+    expect(fetchMock.mock.calls.filter(([, init]) => init.method === "PUT")).toHaveLength(2);
+  });
+
+  it("ignores an old request's error after a replacement save succeeds", async () => {
+    let rejectOld!: (reason: Error) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject; }));
+    const { result } = renderHook(() => useAutosave("numsolis"), { wrapper });
+    act(() => result.current.queueSave("old", 0));
+    await flush(1000);
+    act(() => {
+      result.current.cancelPending();
+      result.current.queueSave("new", 0.2);
+    });
+    await flush(1100);
+    expect(result.current.status).toBe("saved");
+    await act(async () => { rejectOld(new Error("aborted")); });
+    await flush(10);
+    expect(result.current.status).toBe("saved");
+    expect(result.current.syncedAt).toBe("2026-07-26T10:00:00.000Z");
+  });
+
+  it("uses Telegram authorization for a keepalive flush and handles detached rejection", async () => {
+    initDataMock.mockReturnValue("signed-init-data");
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    const { result, unmount } = renderHook(() => useAutosave("numsolis"), { wrapper });
+    act(() => result.current.queueSave("last-move", 0.6));
+    unmount();
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.keepalive).toBe(true);
+    expect(init.headers).toEqual({ "Content-Type": "application/json", Authorization: "tma signed-init-data" });
+    await flush(10);
   });
 });

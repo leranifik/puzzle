@@ -9,7 +9,7 @@ import {
 
 describe("zod schemas", () => {
   it("gameIdSchema accepts known games only", () => {
-    for (const id of ["fifteen", "sudoku", "g2048", "memory"]) {
+    for (const id of ["fifteen", "sudoku", "g2048", "memory", "numsolis"]) {
       expect(gameIdSchema.safeParse(id).success).toBe(true);
     }
     expect(gameIdSchema.safeParse("chess").success).toBe(false);

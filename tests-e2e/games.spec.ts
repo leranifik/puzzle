@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { applyMove, getLegalMoves, numsolisProgress, serializeNumsolis, type NumsolisColumns, type NumsolisMove, type NumsolisState } from "../src/lib/games/numsolis";
+import { generateNumsolisDeal } from "../src/lib/games/numsolis-generator";
 
 /** Click a tile adjacent to the empty cell (first one that increments moves). */
 async function makeFifteenMove(page: Page): Promise<void> {
@@ -189,4 +191,159 @@ test.describe("memory", () => {
     }
     await expect(pairsCounter).toHaveText(/^1\//);
   });
+});
+
+async function readNumsolisColumns(page: Page): Promise<NumsolisColumns> {
+  return page.locator('[data-card]').evaluateAll((nodes) => {
+    const columns: NumsolisColumns = Array.from({ length: 6 }, () => []);
+    for (const node of nodes) {
+      const d = (node as HTMLElement).dataset;
+      columns[Number(d.column)].push({ id: Number(d.card), value: Number(d.value), suit: Number(d.suit) as 0 | 1 });
+    }
+    return columns;
+  });
+}
+
+async function tapNumsolisMove(page: Page, move: NumsolisMove) {
+  await page.locator(`[data-column="${move.from}"][data-index="${move.index}"]`).click({ position: { x: 10, y: 12 } });
+  await page.getByTestId(`numsolis-column-${move.to}`).locator('[data-card]').last().click({ position: { x: 10, y: 12 } });
+}
+
+async function restoreNumsolisFixture(page: Page, state: NumsolisState) {
+  await page.request.get('/api/session');
+  const response = await page.request.put('/api/saves/numsolis', {
+    data: { state: serializeNumsolis(state), progress: numsolisProgress(state) },
+  });
+  expect(response.ok()).toBe(true);
+  await page.goto('/en/play/numsolis');
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByTestId('numsolis-moves')).toHaveText(String(state.moves));
+}
+
+test.describe('Numsolis', () => {
+  test('worker generation, tap, undo, replay and cloud continuation', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/en/play/numsolis');
+    await expect(page.locator('[data-card]').first()).toBeVisible({ timeout: 20_000 });
+    const initial = await readNumsolisColumns(page);
+    expect(initial).toHaveLength(6);
+    expect(initial.flat().length).toBeGreaterThanOrEqual(38);
+    const fixture = { ...generateNumsolisDeal('easy', 0).state, columns: initial, initialColumns: initial };
+    const move = getLegalMoves(fixture)[0];
+    expect(move).toBeTruthy();
+    await tapNumsolisMove(page, move);
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('1');
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('0');
+    await expect.poll(() => readNumsolisColumns(page)).toEqual(initial);
+    await tapNumsolisMove(page, move);
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('1');
+    await expect.poll(async () => {
+      const data = await (await page.request.get('/api/saves/numsolis')).json();
+      return data.save ? JSON.parse(data.save.state).moves : null;
+    }).toBe(1);
+    const played = await readNumsolisColumns(page);
+    await page.reload();
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await expect.poll(() => readNumsolisColumns(page)).toEqual(played);
+    await page.getByRole('button', { name: 'Rules', exact: true }).click();
+    await page.getByRole('button', { name: 'Replay deal', exact: true }).click();
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('0');
+    await expect.poll(() => readNumsolisColumns(page)).toEqual(initial);
+  });
+
+  test('drag moves a whole mixed stack and pointer cancellation changes nothing', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const state = generateNumsolisDeal('medium', 0).state;
+    const move = getLegalMoves(state).find((m) => state.columns[m.from].length - m.index > 1)!;
+    expect(move).toBeTruthy();
+    await restoreNumsolisFixture(page, state);
+    const source = page.locator(`[data-column="${move.from}"][data-index="${move.index}"]`);
+    const target = page.getByTestId(`numsolis-column-${move.to}`).locator('[data-card]').last();
+    await source.scrollIntoViewIfNeeded();
+    const a = (await source.boundingBox())!;
+    const b = (await target.boundingBox())!;
+    await page.mouse.move(a.x + 10, a.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 10, b.y + 12, { steps: 8 });
+    await expect(page.getByTestId('numsolis-drag').locator(':scope > div')).toHaveCount(state.columns[move.from].length - move.index);
+    await expect(page.getByTestId('numsolis-drag').locator(':scope > div').first()).toBeVisible();
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('0');
+    expect(await readNumsolisColumns(page)).toEqual(state.columns);
+    await page.mouse.move(a.x + 10, a.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 10, b.y + 12, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByTestId('numsolis-moves')).toHaveText('1');
+    await expect.poll(() => readNumsolisColumns(page)).toEqual(applyMove(state, move)!.columns);
+  });
+
+  test('Hard has small buried cards of a dominant suit and fits RU/EN layouts', async ({ page }, testInfo) => {
+    await page.goto('/en/play/numsolis');
+    await expect(page.locator('[data-card]').first()).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('combobox', { name: 'Difficulty' }).click();
+    await page.getByRole('option', { name: 'Hard', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Difficulty' })).toHaveText('Hard');
+    const columns = await readNumsolisColumns(page);
+    expect(columns.every((c) => c[0].value <= 32)).toBe(true);
+    const light = columns.filter((c) => c[0].suit === 0).length;
+    expect(Math.max(light, 6 - light)).toBeGreaterThanOrEqual(5);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`numsolis-en-${width}.png`), fullPage: true });
+    }
+    await page.getByRole('button', { name: 'Rules', exact: true }).click();
+    await expect(page.getByRole('dialog')).toContainText('lower pair');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    // Keep the same profile and test the longer Russian labels on narrow screens.
+    await expect.poll(async () => (await (await page.request.get('/api/saves/numsolis')).json()).save?.state ?? '').toContain('"difficulty":"hard"');
+    await page.goto('/ru/play/numsolis');
+    // Navigation may reuse the client store; a full reload offers the cloud save.
+    await page.reload();
+    await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    for (const width of [320, 390, 412]) {
+      await page.setViewportSize({ width, height: 740 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`numsolis-ru-${width}.png`), fullPage: true });
+    }
+  });
+
+  for (const goal of ['first', 'last'] as const) {
+    test(`the ${goal} 2048 ${goal === 'first' ? 'does not win' : 'records one victory and clears the save'}`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      const deal = generateNumsolisDeal('medium', 1);
+      let state = deal.state;
+      let chosen: NumsolisMove | undefined;
+      for (const move of deal.solution) {
+        const next = applyMove(state, move)!;
+        const goals = next.columns.flat().filter((c) => c.value === 2048).length;
+        if ((goal === 'first' && goals === 1) || (goal === 'last' && goals === 2)) { chosen = move; break; }
+        state = next;
+      }
+      expect(chosen).toBeTruthy();
+      await restoreNumsolisFixture(page, state);
+      const resultRequests: string[] = [];
+      page.on('request', (r) => { if (r.url().endsWith('/api/results') && r.method() === 'POST') resultRequests.push(r.postData() ?? ''); });
+      const saved = goal === 'last'
+        ? page.waitForResponse((r) => r.url().endsWith('/api/results') && r.request().method() === 'POST' && r.ok())
+        : waitForAutosave(page, 'numsolis');
+      await tapNumsolisMove(page, chosen!);
+      await saved;
+      if (goal === 'first') {
+        await expect(page.locator('[data-value="2048"]')).toHaveCount(1);
+        await expect(page.getByRole('heading', { name: 'Solved!' })).toHaveCount(0);
+        expect(resultRequests).toHaveLength(0);
+      } else {
+        await expect(page.getByRole('heading', { name: 'Solved!' })).toBeVisible();
+        await expect(page.locator('[data-value="2048"]')).toHaveCount(2);
+        await expect.poll(async () => (await (await page.request.get('/api/saves/numsolis')).json()).save).toBeNull();
+        expect(resultRequests).toHaveLength(1);
+      }
+    });
+  }
 });
