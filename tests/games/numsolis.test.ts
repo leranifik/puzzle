@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyMove, applyNumsolisColumns, canMove, createNumsolisState, deserializeNumsolis,
-  getLegalMoves, getNumsolisMoveFrames, isNumsolisLost, isNumsolisWon, numsolisProgress, restartNumsolis,
+  getLegalMoves, getNumsolisMoveFrames, getNumsolisMerges, isNumsolisLost, isNumsolisWon, numsolisProgress, restartNumsolis,
   serializeNumsolis, undoNumsolis, type NumsolisColumns,
 } from "@/lib/games/numsolis";
 
@@ -214,6 +214,43 @@ describe("Numsolis saves and invariants", () => {
       const raw = JSON.stringify(value);
       expect(() => deserializeNumsolis(raw)).not.toThrow();
       expect(deserializeNumsolis(raw)).toBeNull();
+    }
+  });
+});
+
+
+describe("Numsolis scoring", () => {
+  it("scores each merge with its own cascade multiplier and undoes the whole award", () => {
+    const initial = state([[8, 16], [16, 8]]);
+    expect(getNumsolisMerges(initial.columns, move)).toEqual([
+      { index: 1, value: 16, multiplier: 1, points: 16 },
+      { index: 1, value: 32, multiplier: 2, points: 64 },
+    ]);
+    const next = applyMove(initial, move)!;
+    expect(next.score).toBe(80);
+    expect(undoNumsolis(next)?.score).toBe(0);
+    expect(restartNumsolis(next).score).toBe(0);
+    expect(applyMove(undoNumsolis(next)!, move)?.score).toBe(80);
+  });
+  it("resets the multiplier on the next move and awards nothing for an ordinary transfer", () => {
+    let game = state([[8], [8], [16], [64]]);
+    game = applyMove(game, move)!;
+    expect(game.score).toBe(16);
+    game = applyMove(game, { from: 1, index: 0, to: 2 })!;
+    expect(game.score).toBe(48);
+    expect(applyMove(game, { from: 2, index: 0, to: 3 })?.score).toBe(48);
+  });
+  it("round-trips scores and defaults old saves and their history to zero", () => {
+    const next = applyMove(valid(), move)!;
+    expect(deserializeNumsolis(serializeNumsolis(next))).toEqual(next);
+    const old = JSON.parse(serializeNumsolis(next));
+    delete old.score;
+    old.history.forEach((snapshot: Record<string, unknown>) => delete snapshot.score);
+    const loaded = deserializeNumsolis(JSON.stringify(old))!;
+    expect(loaded.score).toBe(0);
+    expect(undoNumsolis(loaded)?.score).toBe(0);
+    for (const score of [-1, 1.5, null, "80", Number.MAX_SAFE_INTEGER + 1]) {
+      expect(deserializeNumsolis(JSON.stringify({ ...old, score }))).toBeNull();
     }
   });
 });

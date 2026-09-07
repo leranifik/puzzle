@@ -29,21 +29,25 @@ describe("Numsolis store", () => {
     [], [], [], [],
   ], "easy", 8);
 
-  it("applies a complete cascade immediately, with no animation lock", () => {
+  it("commits a cascade and its score atomically while presentation blocks the next move", () => {
     store().init(cascadeDeal());
     expect(store().move({ from: 1, index: 0, to: 0 })).toBe(true);
     expect(store().state!.columns[0].map((card) => card.value)).toEqual([16, 32]);
-    expect(store().animationFrames).toEqual([]);
+    expect(store().animation?.merges.map((merge) => merge.multiplier)).toEqual([1, 2]);
+    expect(store().state!.score).toBe(80);
+    expect(store().move({ from: 0, index: 0, to: 1 })).toBe(false);
     expect(store().undo()).toBe(true);
     expect(store().state!.columns).toEqual(cascadeDeal().columns);
+    expect(store().state!.score).toBe(0);
+    expect(store().animation).toBeNull();
   });
 
-  it("remote load clears frames without a local save revision", () => {
+  it("remote load cancels presentation without a local save revision", () => {
     store().init(cascadeDeal());
     store().move({ from: 1, index: 0, to: 0 });
     const revision = store().revision;
     store().init(deal());
-    expect(store().animationFrames).toEqual([]);
+    expect(store().animation).toBeNull();
     expect(store().revision).toBe(revision);
   });
 
@@ -69,6 +73,7 @@ describe("Numsolis store", () => {
   it("detects victory, blocks play/timer, and allows undo", () => {
     store().init(deal());
     store().move({ from: 0, index: 0, to: 1 });
+    store().finishAnimation();
     store().move({ from: 1, index: 0, to: 2 });
     expect(store().won).toBe(true);
     expect(store().lost).toBe(false);

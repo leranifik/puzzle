@@ -207,6 +207,7 @@ export const en = {
     rules: "Rules",
     rulesTitle: "How to play Numsolis",
     rulesText: [
+      "Each merge awards the resulting card value. Within one move, the second merge earns ×2 points, the third ×3, and so on. The multiplier resets each move; Undo restores the score.",
       "Move any card together with every card below it, keeping their order. You can drag a stack, or select it and then select a destination column.",
       "Place a smaller card on a larger card of either suit. Equal cards can meet only if their suits match: they merge into one card with double the value.",
       "Matching neighbors merge in a chain. If both neighbors match, the lower pair merges first. Undo reverses the entire move and its chain.",

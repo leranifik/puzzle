@@ -45,7 +45,7 @@ describe("Numsolis board controls", () => {
     fireEvent.pointerMove(board, { clientX: 150, clientY: 70 });
     expect(screen.getByTestId("numsolis-drag").children).toHaveLength(2);
     fireEvent.pointerUp(board, { clientX: 150, clientY: 70 });
-    expect(onMove).toHaveBeenCalledExactlyOnceWith({ from: 0, index: 0, to: 1 });
+    expect(onMove).toHaveBeenCalledExactlyOnceWith({ from: 0, index: 0, to: 1 }, { dx: 105, dy: 50 });
     expect(screen.queryByTestId("numsolis-drag")).toBeNull();
   });
 
@@ -88,7 +88,7 @@ describe("Numsolis board controls", () => {
     fireEvent.pointerDown(card(1), { button: 0, clientX: 45, clientY: 20 });
     fireEvent.pointerMove(board, { clientX: 150, clientY: 70 });
     fireEvent.pointerUp(board, { clientX: 150, clientY: 70 });
-    expect(onMove).toHaveBeenCalledExactlyOnceWith({ from: 0, index: 0, to: 1 });
+    expect(onMove).toHaveBeenCalledExactlyOnceWith({ from: 0, index: 0, to: 1 }, { dx: 105, dy: 50 });
   });
 
   it("renders the engine's lower-first cascade and closed source, not an intermediate board", () => {

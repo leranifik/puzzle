@@ -28,7 +28,7 @@ export function NumsolisBoard({ state, copy, disabled = false, onMove }: {
   state: NumsolisState;
   copy: Dictionary["numsolis"];
   disabled?: boolean;
-  onMove: (move: NumsolisMove) => boolean;
+  onMove: (move: NumsolisMove, origin?: { dx: number; dy: number }) => boolean;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -51,7 +51,9 @@ export function NumsolisBoard({ state, copy, disabled = false, onMove }: {
 
   function place(from: Selection, to: number) {
     if (canMove(state, { from: from.from, index: from.index, to })) {
-      onMove({ from: from.from, index: from.index, to });
+      const action = { from: from.from, index: from.index, to };
+      if (activeDrag) onMove(action, { dx: activeDrag.dx, dy: activeDrag.dy });
+      else onMove(action);
     }
     cancel();
   }

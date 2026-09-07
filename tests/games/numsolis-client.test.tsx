@@ -168,7 +168,7 @@ describe("Numsolis synchronization", () => {
     expect(useNumsolisStore.getState().tick).toHaveBeenCalledTimes(1);
   });
 
-  it("shows and saves the final cascade immediately without an animation lock", () => {
+  it("shows and saves the atomic cascade when presentation is finished", () => {
     vi.useFakeTimers();
     const initial = createNumsolisState([
       [{ id: 1, value: 8, suit: 0 }, { id: 2, value: 16, suit: 0 }],

@@ -5,7 +5,7 @@ export type NumsolisCard = { id: number; value: number; suit: 0 | 1 };
 /** Columns are ordered visually from top (buried) to bottom (exposed). */
 export type NumsolisColumns = NumsolisCard[][];
 export type NumsolisMove = { from: number; index: number; to: number };
-export type NumsolisSnapshot = { columns: NumsolisColumns; moves: number };
+export type NumsolisSnapshot = { columns: NumsolisColumns; moves: number; score: number };
 export type NumsolisState = {
   version: 1;
   rulesVersion: 1;
@@ -17,6 +17,7 @@ export type NumsolisState = {
   initialColumns: NumsolisColumns;
   moves: number;
   seconds: number;
+  score: number;
   history: NumsolisSnapshot[];
 };
 
@@ -37,7 +38,7 @@ export function createNumsolisState(
   return {
     version: 1, rulesVersion: 1, generatorVersion: 1, id, seed, difficulty,
     columns: copyColumns(columns), initialColumns: copyColumns(columns),
-    moves: 0, seconds: 0, history: [],
+    moves: 0, seconds: 0, score: 0, history: [],
   };
 }
 
@@ -54,8 +55,10 @@ export function canMoveColumns(columns: NumsolisColumns, move: NumsolisMove): bo
     target.length + source.length - index - Number(merge) <= NUMSOLIS_MAX_HEIGHT;
 }
 
+export type NumsolisMerge = { index: number; value: number; multiplier: number; points: number };
+
 /** Only the contact merge starts a cascade; unrelated pairs are untouched. */
-function applyColumns(columns: NumsolisColumns, move: NumsolisMove, collect?: (columns: NumsolisColumns) => void): NumsolisColumns | null {
+function applyColumns(columns: NumsolisColumns, move: NumsolisMove, collect?: (columns: NumsolisColumns) => void, merge?: (event: NumsolisMerge) => void): NumsolisColumns | null {
   if (!canMoveColumns(columns, move)) return null;
   const next = columns.map((column) => column.slice());
   const group = next[move.from].splice(move.index);
@@ -63,8 +66,11 @@ function applyColumns(columns: NumsolisColumns, move: NumsolisMove, collect?: (c
   let active = target.length - 1;
   const contact = matches(target[active], group[0]);
   target.push(...group);
+  let multiplier = 0;
+  const emit = () => { multiplier++; merge?.({ index: active, value: target[active].value, multiplier, points: target[active].value * multiplier }); };
   if (contact) {
     target.splice(active, 2, { ...target[active], value: target[active].value * 2 });
+    emit();
     collect?.(copyColumns(next));
     while (true) {
       // A lower neighbour wins when both neighbours match the active card.
@@ -74,6 +80,7 @@ function applyColumns(columns: NumsolisColumns, move: NumsolisMove, collect?: (c
         target.splice(active - 1, 2, { ...target[active - 1], value: target[active].value * 2 });
         active--;
       } else break;
+      emit();
       collect?.(copyColumns(next));
     }
   } else collect?.(copyColumns(next));
@@ -89,6 +96,12 @@ export function getNumsolisMoveFrames(columns: NumsolisColumns, move: NumsolisMo
   const frames: NumsolisColumns[] = [];
   applyColumns(columns, move, (frame) => frames.push(frame));
   return frames;
+}
+
+export function getNumsolisMerges(columns: NumsolisColumns, move: NumsolisMove): NumsolisMerge[] {
+  const merges: NumsolisMerge[] = [];
+  applyColumns(columns, move, undefined, (merge) => merges.push(merge));
+  return merges;
 }
 
 export function getNumsolisColumnMoves(columns: NumsolisColumns): NumsolisMove[] {
@@ -118,10 +131,12 @@ export const isNumsolisLost = (state: NumsolisState) => !isNumsolisWon(state) &&
 
 export function applyMove(state: NumsolisState, move: NumsolisMove): NumsolisState | null {
   if (!canMove(state, move) || state.moves === Number.MAX_SAFE_INTEGER) return null;
-  const columns = applyNumsolisColumns(state.columns, move)!;
+  let earned = 0;
+  const columns = applyColumns(state.columns, move, undefined, (merge) => { earned += merge.points; })!;
+  if (!Number.isSafeInteger(state.score + earned)) return null;
   const next: NumsolisState = {
-    ...state, columns, moves: state.moves + 1,
-    history: [...state.history, { columns: state.columns, moves: state.moves }].slice(-NUMSOLIS_MAX_HISTORY),
+    ...state, columns, moves: state.moves + 1, score: state.score + earned,
+    history: [...state.history, { columns: state.columns, moves: state.moves, score: state.score }].slice(-NUMSOLIS_MAX_HISTORY),
   };
   while (next.history.length && JSON.stringify(next).length > NUMSOLIS_MAX_SAVE_LENGTH) next.history.shift();
   return next;
@@ -129,7 +144,7 @@ export function applyMove(state: NumsolisState, move: NumsolisMove): NumsolisSta
 
 export function undoNumsolis(state: NumsolisState): NumsolisState | null {
   const previous = state.history.at(-1);
-  return previous ? { ...state, columns: copyColumns(previous.columns), moves: previous.moves, history: state.history.slice(0, -1) } : null;
+  return previous ? { ...state, columns: copyColumns(previous.columns), moves: previous.moves, score: previous.score, history: state.history.slice(0, -1) } : null;
 }
 export function restartNumsolis(state: NumsolisState, id = state.id): NumsolisState {
   return createNumsolisState(state.initialColumns, state.difficulty, state.seed, id);
@@ -153,8 +168,8 @@ const stateSchema = z.object({
   version: z.literal(1), rulesVersion: z.literal(1), generatorVersion: z.literal(1),
   id: z.string().min(1).max(128), seed: z.number().int().min(0).max(0xffffffff),
   difficulty: z.enum(["easy", "medium", "hard"]), columns: columnsSchema,
-  initialColumns: columnsSchema, moves: counter, seconds: counter,
-  history: z.array(z.object({ columns: columnsSchema, moves: counter }).strict()).max(NUMSOLIS_MAX_HISTORY),
+  initialColumns: columnsSchema, moves: counter, seconds: counter, score: counter.default(0),
+  history: z.array(z.object({ columns: columnsSchema, moves: counter, score: counter.default(0) }).strict()).max(NUMSOLIS_MAX_HISTORY),
 }).strict();
 
 export function deserializeNumsolis(raw: string): NumsolisState | null {

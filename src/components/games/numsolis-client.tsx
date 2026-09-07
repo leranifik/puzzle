@@ -12,6 +12,7 @@ import { useAutosave } from "@/hooks/use-autosave";
 import { useRemoteWatch } from "@/hooks/use-remote-watch";
 import { haptics } from "@/lib/telegram-client";
 import { GameShell, SaveIndicator, formatTime } from "@/components/games/game-shell";
+import { NumsolisAnimation } from "@/components/games/numsolis-animation";
 import { NumsolisBoard } from "@/components/games/numsolis-board";
 import { ContinueDialog } from "@/components/games/continue-dialog";
 import { SyncDialog } from "@/components/games/sync-dialog";
@@ -22,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import styles from "./numsolis.module.css";
 
 export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Dictionary }) {
-  const { state, won, lost, generating, generationError, newGame, init, move, undo, restart, tick } = useNumsolisStore();
+  const { state, won, lost, generating, generationError, newGame, init, move, undo, restart, tick, animation, finishAnimation } = useNumsolisStore();
   const { queueSave, clearSave, status, syncedAt, markSynced, cancelPending } = useAutosave("numsolis");
   const [dismissed, setDismissed] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
@@ -41,7 +42,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   const remote = useRemoteWatch({ game: "numsolis", enabled: !!state && !won && !generating && !askContinue, syncedAt });
   const remoteRestored = remote ? deserializeNumsolis(remote.state) : null;
   const showSync = !!remote && !!remoteRestored;
-  const paused = askContinue || showSync || rulesOpen || difficultyOpen || generating || won || lost;
+  const paused = !!animation || askContinue || showSync || rulesOpen || difficultyOpen || generating || won || lost;
   const hasState = !!state;
   // Subscribe to local transactions: cloud init and seconds deliberately do not
   // change revision. A remote load therefore never echoes stale data back.
@@ -52,7 +53,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
       posted.current.add(next.state.id);
       haptics.success();
       clearSave();
-      void api.postResult({ game: "numsolis", moves: next.state.moves, seconds: next.state.seconds, meta: { difficulty: next.state.difficulty, rulesVersion: next.state.rulesVersion } }).catch(() => {});
+      void api.postResult({ game: "numsolis", moves: next.state.moves, seconds: next.state.seconds, meta: { score: next.state.score, difficulty: next.state.difficulty, rulesVersion: next.state.rulesVersion } }).catch(() => {});
     } else queueSave(serializeNumsolis(next.state), numsolisProgress(next.state));
   }), [queueSave, clearSave]);
 
@@ -109,20 +110,21 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
   const goals = difficulty === "easy" ? 1 : 2;
   const collected = state?.columns.flat().filter((card) => card.value === 2048).length ?? 0;
   const toolbar = (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-4">
-        <div><p className="label-mono text-muted-foreground">{dict.game.moves}</p><p data-testid="numsolis-moves" className="font-display text-xl font-medium tabular-nums text-foreground">{state?.moves ?? 0}</p></div>
-        <div className="h-8 w-px bg-surface" />
-        <div><p className="label-mono text-muted-foreground">{dict.game.time}</p><p className="font-display text-xl font-medium tabular-nums text-foreground">{formatTime(state?.seconds ?? 0)}</p></div>
+    <div data-testid="numsolis-toolbar" className={styles.toolbar}>
+      <div className={styles.stats}>
+        <div><p className={styles.statLabel}>{dict.game.scoreLabel}</p><p data-testid="numsolis-score" className={`${styles.statNumber} text-gold-soft`}>{state?.score ?? 0}</p></div>
+        <div><p className={styles.statLabel}>{dict.game.moves}</p><p data-testid="numsolis-moves" className={styles.statNumber}>{state?.moves ?? 0}</p></div>
+        <div><p className={styles.statLabel}>{dict.game.time}</p><p className={styles.statNumber}>{formatTime(state?.seconds ?? 0)}</p></div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="hidden sm:inline-flex"><SaveIndicator status={status} dict={dict} /></span>
+      <div data-testid="numsolis-actions" className={styles.tools}>
+        <div className={styles.leftTools}>
         <Select value={difficulty} onOpenChange={setDifficultyOpen} onValueChange={(value) => startNew(value as NumsolisDifficulty)} disabled={generating || askContinue || showSync || (!state && !saveReady)}>
-          <SelectTrigger size="sm" aria-label={dict.game.difficulty} className="rounded-full border-surface bg-card text-gold-soft"><SelectValue /></SelectTrigger>
+          <SelectTrigger size="sm" aria-label={dict.game.difficulty} className={`${styles.tool} ${styles.difficulty}`}><SelectValue /></SelectTrigger>
           <SelectContent className="border-surface bg-card">{(["easy", "medium", "hard"] as const).map((value) => <SelectItem key={value} value={value}>{copy[value]}</SelectItem>)}</SelectContent>
         </Select>
-        <Button variant="outline" size="sm" className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft" aria-label={copy.undo} disabled={!state?.history.length || generating || won || askContinue || showSync} onClick={() => { if (undo()) haptics.tap(); }}><Undo2 className="size-3.5" /><span className="hidden sm:inline">{copy.undoAction}</span></Button>
-        <Button variant="outline" size="sm" className="rounded-full border-surface bg-transparent text-gold-soft hover:bg-surface hover:text-gold-soft" aria-label={dict.game.newGame} disabled={generating || askContinue || showSync || (!state && !saveReady)} onClick={() => startNew(difficulty)}><RotateCcw className="size-3.5" /><span className="hidden sm:inline">{dict.game.newGame}</span></Button>
+        <button type="button" className={styles.tool} aria-label={dict.game.newGame} disabled={generating || askContinue || showSync || (!state && !saveReady)} onClick={() => startNew(difficulty)}><RotateCcw aria-hidden />{dict.game.newGame}</button>
+        </div>
+        <button type="button" className={styles.tool} aria-label={copy.undo} disabled={!state?.history.length || generating || won || askContinue || showSync} onClick={() => { if (undo()) haptics.tap(); }}><Undo2 aria-hidden />{copy.undoAction}</button>
       </div>
     </div>
   );
@@ -133,8 +135,9 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
           <button type="button" className={styles.help} onClick={() => setRulesOpen(true)}><CircleHelp className="size-[15px]" />{copy.rules}</button>
         </div>
         <div className="relative">
-          {state ? <NumsolisBoard state={state} copy={copy} disabled={paused} onMove={(action) => { const accepted = move(action); if (accepted) haptics.tap(); return accepted; }} /> : <div className="h-[430px]" aria-busy={!generationError && !saveQuery.isError} />}
-          {(won || lost) && !generating && state && <div className={styles.overlay}>
+          <div style={{ visibility: animation ? "hidden" : "visible" }}>{state ? <NumsolisBoard state={state} copy={copy} disabled={paused} onMove={(action, origin) => { const accepted = move(action, origin); if (accepted) haptics.tap(); return accepted; }} /> : <div className="h-[430px]" aria-busy={!generationError && !saveQuery.isError} />}</div>
+          {animation && <NumsolisAnimation plan={animation} onComplete={finishAnimation} />}
+          {(won || lost) && !animation && !generating && state && <div className={styles.overlay}>
             <div role="status" className={styles.message}>
               <h2>{won ? dict.game.youWon : copy.lost}</h2><p>{won ? copy.won : copy.lostHint}</p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -148,6 +151,7 @@ export function NumsolisClient({ locale, dict }: { locale: Locale; dict: Diction
         </div>
         <div className={styles.floor} aria-hidden />
         <p className={`${styles.limit} ${styles.mono}`}>{copy.capacityLabel}</p>
+        <div className="mt-4 flex min-h-5 justify-center"><SaveIndicator status={status} dict={dict} /></div>
       </div>
       {generationError && <div role="alert" className="mx-4 mt-4 text-center text-sm text-muted-foreground"><p>{copy.generationError}</p><button className={`${styles.action} mx-auto mt-3`} onClick={() => startNew(requestedDifficulty)}>{copy.retry}</button></div>}
     <ContinueDialog open={askContinue} dict={dict} onContinue={continueSaved} onNew={() => startNew(restorable?.difficulty ?? "easy")} />

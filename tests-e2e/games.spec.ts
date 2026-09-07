@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { applyMove, getLegalMoves, numsolisProgress, serializeNumsolis, type NumsolisColumns, type NumsolisMove, type NumsolisState } from "../src/lib/games/numsolis";
+import { applyMove, createNumsolisState, getLegalMoves, numsolisProgress, serializeNumsolis, type NumsolisColumns, type NumsolisMove, type NumsolisState } from "../src/lib/games/numsolis";
 import { generateNumsolisDeal } from "../src/lib/games/numsolis-generator";
 
 /** Click a tile adjacent to the empty cell (first one that increments moves). */
@@ -222,6 +222,49 @@ async function restoreNumsolisFixture(page: Page, state: NumsolisState) {
 }
 
 test.describe('Numsolis', () => {
+  test('cascade keeps lower cards above, scores multipliers and cancels cleanly on undo', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const values = [[8, 16], [16, 8], [1024], [512], [256], [128, 64, 16]];
+    let id = 0;
+    const state = createNumsolisState(values.map((column) => column.map((value) => ({ id: id++, value, suit: 0 as const }))), 'easy', 12);
+    await restoreNumsolisFixture(page, state);
+    await page.evaluate(() => {
+      const audit = { checked: 0, wrong: false, stop: false };
+      (window as unknown as { mergeAudit: typeof audit }).mergeAudit = audit;
+      const frame = () => {
+        const root = document.querySelector('[data-testid="numsolis-animation"]');
+        const cards = root ? Array.from(root.children).filter((el) => el.firstElementChild?.textContent === '16') as HTMLElement[] : [];
+        const middle = cards.find((el) => Math.abs(parseFloat(el.style.top) - 44) < 1);
+        const bottom = cards.find((el) => Math.abs(parseFloat(el.style.top) - 88) < 1 && el.style.left === middle?.style.left);
+        if (middle && bottom) { audit.checked++; if (Number(middle.style.zIndex) >= Number(bottom.style.zIndex)) audit.wrong = true; }
+        if (!audit.stop) requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+    await tapNumsolisMove(page, { from: 0, index: 0, to: 1 });
+    await expect(page.getByTestId('numsolis-score')).toHaveText('80');
+    await expect(page.getByTestId('numsolis-animation')).toHaveCount(0);
+    const audit = await page.evaluate(() => {
+      const a = (window as unknown as { mergeAudit: { checked: number; wrong: boolean; stop: boolean } }).mergeAudit;
+      a.stop = true; return a;
+    });
+    expect(audit.checked).toBeGreaterThan(0);
+    expect(audit.wrong).toBe(false);
+    expect((await readNumsolisColumns(page))[1].map((card) => card.value)).toEqual([16, 32]);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.getByTestId('numsolis-score')).toHaveText('0');
+    await tapNumsolisMove(page, { from: 0, index: 0, to: 1 });
+    await expect(page.getByTestId('numsolis-animation')).toBeAttached();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.getByTestId('numsolis-animation')).toHaveCount(0);
+    expect(await readNumsolisColumns(page)).toEqual(state.columns);
+    await expect(page.getByTestId('numsolis-score')).toHaveText('0');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await tapNumsolisMove(page, { from: 0, index: 0, to: 1 });
+    await expect(page.getByTestId('numsolis-animation')).toHaveCount(0);
+    await expect(page.getByTestId('numsolis-score')).toHaveText('80');
+  });
+
   test('worker generation, tap, undo, replay and cloud continuation', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/en/play/numsolis');
@@ -287,6 +330,21 @@ test.describe('Numsolis', () => {
     await page.getByRole('combobox', { name: 'Difficulty' }).click();
     await page.getByRole('option', { name: 'Hard', exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Difficulty' })).toHaveText('Hard');
+    // A growing score must not push controls to a different row.
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 844 });
+      const score = page.getByTestId('numsolis-score');
+      const original = await score.textContent();
+      const before = await page.getByTestId('numsolis-actions').boundingBox();
+      await score.evaluate((el) => { el.textContent = '9999999'; });
+      const after = await page.getByTestId('numsolis-actions').boundingBox();
+      expect(after!.y).toBe(before!.y);
+      const numberBox = await score.boundingBox();
+      expect(after!.y).toBeGreaterThanOrEqual(numberBox!.y + numberBox!.height);
+      expect(after!.height).toBeLessThanOrEqual(36); // 28px controls + 8px top spacing
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await score.evaluate((el, value) => { el.textContent = value; }, original);
+    }
     const columns = await readNumsolisColumns(page);
     expect(columns.every((c) => c[0].value <= 32)).toBe(true);
     const light = columns.filter((c) => c[0].suit === 0).length;

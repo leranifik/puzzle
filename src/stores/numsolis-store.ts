@@ -7,6 +7,8 @@ import {
   type NumsolisState,
   type NumsolisColumns,
   applyMove,
+  getNumsolisMerges,
+  type NumsolisMerge,
   isNumsolisWon,
   isNumsolisLost,
   undoNumsolis,
@@ -15,7 +17,10 @@ import {
 } from "@/lib/games/numsolis";
 import { generateNumsolis } from "@/lib/games/numsolis-generation-client";
 
+export type NumsolisAnimation = { before: NumsolisColumns; move: NumsolisMove; merges: NumsolisMerge[]; origin?: { dx: number; dy: number } };
+
 type NumsolisStore = {
+  animation: NumsolisAnimation | null;
   state: NumsolisState | null;
   won: boolean;
   lost: boolean;
@@ -27,7 +32,7 @@ type NumsolisStore = {
   revision: number;
   init: (state: NumsolisState) => void;
   newGame: (difficulty: NumsolisDifficulty, seed?: number) => Promise<void>;
-  move: (move: NumsolisMove) => boolean;
+  move: (move: NumsolisMove, origin?: { dx: number; dy: number }) => boolean;
   undo: () => boolean;
   restart: () => void;
   tick: () => void;
@@ -49,18 +54,18 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => {
     lost: false,
     generating: false,
     generationError: false,
-    animationFrames: [],
+    animation: null, animationFrames: [],
     animationIndex: 0,
     revision: 0,
 
     init: (state) => {
       generation++;
-      set({ state, ...status(state), generating: false, generationError: false, animationFrames: [], animationIndex: 0 });
+      set({ state, ...status(state), generating: false, generationError: false, animation: null, animationFrames: [], animationIndex: 0 });
     },
 
     newGame: async (difficulty, seed) => {
       const request = ++generation;
-      set({ generating: true, generationError: false, animationFrames: [], animationIndex: 0 });
+      set({ generating: true, generationError: false, animation: null, animationFrames: [], animationIndex: 0 });
       try {
         const nextSeed = seed ?? crypto.getRandomValues(new Uint32Array(1))[0];
         const generated = await generateNumsolis(difficulty, nextSeed);
@@ -75,14 +80,14 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => {
       }
     },
 
-    move: (move) => {
-      const { state, won, lost, generating, revision } = get();
-      if (!state || won || lost || generating) return false;
+    move: (move, origin) => {
+      const { state, won, lost, generating, revision, animation } = get();
+      if (!state || won || lost || generating || animation) return false;
       const next = applyMove(state, move);
       if (!next) return false;
       set({
         state: next, ...status(next), revision: revision + 1,
-        animationFrames: [], animationIndex: 0,
+        animation: { before: state.columns, move, merges: getNumsolisMerges(state.columns, move), origin }, animationFrames: [], animationIndex: 0,
       });
       return true;
     },
@@ -92,7 +97,7 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => {
       if (!state || generating) return false;
       const next = undoNumsolis(state);
       if (!next) return false;
-      set({ state: next, ...status(next), revision: revision + 1, animationFrames: [], animationIndex: 0 });
+      set({ state: next, ...status(next), revision: revision + 1, animation: null, animationFrames: [], animationIndex: 0 });
       return true;
     },
 
@@ -103,7 +108,7 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => {
       const next = restartNumsolis(state, crypto.randomUUID());
       set({
         state: next, ...status(next), generating: false, generationError: false,
-        revision: revision + 1, animationFrames: [], animationIndex: 0,
+        revision: revision + 1, animation: null, animationFrames: [], animationIndex: 0,
       });
     },
 
@@ -117,17 +122,17 @@ export const useNumsolisStore = create<NumsolisStore>((set, get) => {
       const { animationFrames, animationIndex } = get();
       if (!animationFrames.length) return;
       if (animationIndex + 1 >= animationFrames.length) {
-        set({ animationFrames: [], animationIndex: 0 });
+        set({ animation: null, animationFrames: [], animationIndex: 0 });
       } else {
         set({ animationIndex: animationIndex + 1 });
       }
     },
 
-    finishAnimation: () => set({ animationFrames: [], animationIndex: 0 }),
+    finishAnimation: () => set({ animation: null, animationFrames: [], animationIndex: 0 }),
 
     reset: () => {
       generation++;
-      set({ state: null, won: false, lost: false, generating: false, generationError: false, animationFrames: [], animationIndex: 0 });
+      set({ state: null, won: false, lost: false, generating: false, generationError: false, animation: null, animationFrames: [], animationIndex: 0 });
     },
   };
 });

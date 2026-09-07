@@ -13,3 +13,18 @@
 .message { width: 100%; padding: 24px; border: 1px solid var(--surface); border-radius: 8px; background: var(--card); text-align: center; }
 .message h2 { font-size: 24px; margin-bottom: 8px; }
 .message p { color: var(--muted-foreground); }
+
+.toolbar { width: 100%; max-width: 390px; margin: 0 auto 8px; }
+.stats { display: grid; grid-template-columns: 1.25fr .8fr 1fr; gap: 12px; padding: 0 4px; }
+.stats > div { min-width: 0; }
+.stats > div + div { border-left: 1px solid var(--surface); padding-left: 16px; }
+.statLabel { font: 500 11px/1.2 var(--font-plex-mono), monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted-foreground); margin-bottom: 3px; }
+.statNumber { font: 500 20px/1.1 var(--font-archivo), sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; }
+.leftTools { display: flex; align-items: center; gap: 6px; }
+.tool { display: flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; width: auto; height: 28px; min-height: 28px; padding: 0 9px; border: 1px solid var(--surface); border-radius: 999px; background: transparent; color: var(--gold-soft); font: 400 12px/1 var(--font-archivo), sans-serif; white-space: nowrap; cursor: pointer; box-shadow: none; }
+.tool svg { width: 13px; height: 13px; }
+.tool:hover { background: var(--surface); }
+.tool:disabled { opacity: .35; cursor: default; }
+.difficulty { border-radius: 6px; background: var(--card); }
+@media (max-width: 350px) { .stats > div + div { padding-left: 10px; } .tools, .leftTools { gap: 5px; } .tool { font-size: 11px; padding-left: 7px; padding-right: 7px; } }

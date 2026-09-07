@@ -86,6 +86,8 @@ imports in engines or their tests.
 
 Numsolis uses a pure engine plus deterministic generation. Every accepted deal must have a complete solution replayed through the same legal-move engine; a search timeout is not proof of solvability. Generation runs asynchronously through the generation client. Store `revision` changes only on meaningful local actions, not timer ticks or remote initialization. A pending generation must never overwrite a later new game, reset, or loaded save. Keep each new/replayed game ID unique and history within the existing 50,000-character save limit. See `NUMSOLIS.md` for the confirmed rules, including immediate-merge capacity and lower-neighbor cascade priority.
 
+Numsolis merge events drive both animation and scoring: resulting value × one-based merge index within the move. Save `score` in state and Undo snapshots; deserialize legacy missing scores as zero. Animation is transient; the final board and score are committed atomically. Keep lower cards above upper cards throughout the pulse, and cancel presentation on Undo/load/reset.
+
 ### Adding a language
 
 Add code to `locales` in `src/i18n/config.ts`, create
