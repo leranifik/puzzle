@@ -10,6 +10,7 @@ export type TelegramWebApp = {
   };
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  setBottomBarColor?: (color: string) => void;
   disableVerticalSwipes?: () => void;
   HapticFeedback?: {
     impactOccurred: (style: "light" | "medium" | "heavy" | "rigid" | "soft") => void;

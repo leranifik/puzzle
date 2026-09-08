@@ -98,6 +98,10 @@ export function TelegramInit({ locale }: { locale: Locale }) {
           // Swipe-to-close conflicts with swipe controls in 2048.
           tg.disableVerticalSwipes?.();
         } catch { /* older Telegram clients */ }
+        try {
+          // Also colors Android's system navigation bar (Bot API 7.10+).
+          tg.setBottomBarColor?.("#15171c");
+        } catch { /* bottom bar colors are unavailable in older clients */ }
       }
       if (uiRan.current || attempts > 40) clearInterval(timer); // ~10s max
     }, 250);

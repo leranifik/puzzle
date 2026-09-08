@@ -392,7 +392,8 @@ https://your-domain.example/ru/games
 Интеграция выполняет следующие действия:
 
 - вызывает Telegram Web App SDK `ready()` и `expand()`;
-- применяет цвета и параметры viewport Telegram;
+- применяет цвета и параметры viewport Telegram, включая тёмную нижнюю панель навигации Android в поддерживаемых версиях Telegram;
+- при открытии в браузере задаёт тёмные `theme-color` и `color-scheme` для системного оформления;
 - отключает vertical swipes, конфликтующие с игровыми жестами;
 - использует Telegram Haptic Feedback с browser fallback;
 - проверяет HMAC-подпись и свежесть `initData` на сервере;

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
 import { Archivo, IBM_Plex_Mono } from "next/font/google";
@@ -7,6 +7,11 @@ import { locales, isLocale, type Locale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/get-dictionary";
 import { Providers } from "@/components/providers";
 import { TelegramInit } from "@/components/telegram-init";
+
+export const viewport: Viewport = {
+  themeColor: "#15171c",
+  colorScheme: "dark",
+};
 
 const archivo = Archivo({
   subsets: ["latin", "latin-ext"],
